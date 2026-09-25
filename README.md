@@ -1,9 +1,9 @@
 # UAV C2 IDS DATASET (PHASE 3 FINAL PRODUCTION RELEASE)
 
-> **Phiên bản:** v2.1.0 (Frozen Baseline)  
+> **Phiên bản:** v2.1.0 
 > **Tổng số cửa sổ:** 59,380 windows (1.0s window, 0.5s stride)  
 > **Tổng số thực nghiệm:** 156 runs (12 Benign + 144 Attack)  
-> **Số cột:** 59 cột sạch (Đã loại bỏ hoàn toàn `temperature_delta` 100% NaN)  
+> **Số cột:** 59 cột sạch 
 > **Vantage Point:** GCS-side (Trạm điều khiển mặt đất thu/phát MAVLink UDP)
 
 ---
