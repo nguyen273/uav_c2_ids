@@ -1,0 +1,175 @@
+{
+  "dataset_version": "2.1.0",
+  "dataset_status": "FROZEN_BASELINE_PRODUCTION_READY",
+  "total_windows": 59380,
+  "total_columns": 59,
+  "campaign_scope": {
+    "completed_baseline_runs": 156,
+    "completed_baseline_windows": 59380,
+    "target_campaign_runs": 180,
+    "pending_extension": {
+      "attack_name": "SHADOW_GCS_MITM",
+      "attack_type": "C2_TAKEOVER_COMMAND_INJECTION",
+      "runs": 24,
+      "status": "PENDING_PROXY_VERIFICATION_AND_DATA_COLLECTION",
+      "prerequisite": "Proxy verification in experiments/attacks/proxy.py and Gazebo mission validation",
+      "assigned_evaluation_role": "Track E3.2 Out-of-Distribution / Stealth Generalization Benchmark"
+    }
+  },
+  "partitions": {
+    "train": 41426,
+    "val": 9840,
+    "test": 7538,
+    "transition": 576
+  },
+  "reporting_label_schemes": {
+    "fine_grained_attack_classes": {
+      "count": 6,
+      "classes": [
+        "FLOOD",
+        "REPLAY",
+        "FDI_GCS_STATE_SPOOF",
+        "FDI_GCS_POSITION_DRIFT",
+        "C2_DEGRADATION",
+        "MAVLINK_ANOMALY"
+      ],
+      "designated_reports": [
+        "Track E2: Known-Attack Identification (6-Class Multi-class)",
+        "Detailed Confusion Matrix Analysis",
+        "Per-class Precision, Recall, and F1 across known attack variants"
+      ]
+    },
+    "coarse_grained_attack_families": {
+      "count": 5,
+      "grouping_rule": "FDI_GCS_STATE_SPOOF + FDI_GCS_POSITION_DRIFT merged into unified family 'FDI'",
+      "families": [
+        "FLOOD",
+        "REPLAY",
+        "FDI",
+        "C2_DEGRADATION",
+        "MAVLINK_ANOMALY"
+      ],
+      "designated_reports": [
+        "Track E3.1: Leave-One-Group-Out (LOGO) Unseen-Attack Generalization (5-Fold Family CV)",
+        "High-level Threat Taxonomy Overview in Research Paper",
+        "Comparative Robustness Analysis across Attack Families"
+      ]
+    }
+  },
+  "feature_views": {
+    "X_baseline": {
+      "n_features": 32,
+      "features": [
+        "packet_count",
+        "byte_count",
+        "packet_rate",
+        "byte_rate",
+        "pkt_len_mean",
+        "pkt_len_std",
+        "iat_mean",
+        "iat_std",
+        "iat_min",
+        "iat_max",
+        "iat_p95",
+        "udp_ratio",
+        "tcp_ratio",
+        "mean_udp_length",
+        "mean_payload_length",
+        "payload_length_std",
+        "mavlink_msg_rate",
+        "mavlink_unique_msg_count",
+        "mavlink_msg_entropy",
+        "mavlink_seq_gap_mean",
+        "mavlink_seq_gap_std",
+        "mavlink_duplicate_seq_ratio",
+        "mavlink_command_rate",
+        "gcs_to_uav_ratio",
+        "altitude_mean",
+        "altitude_std",
+        "speed_mean",
+        "speed_std",
+        "roll_abs_mean",
+        "pitch_abs_mean",
+        "yaw_rate_mean",
+        "battery_delta"
+      ]
+    },
+    "X_pruned": {
+      "n_features": 24,
+      "description": "Compact Feature Set for lightweight edge IDS",
+      "features": [
+        "packet_rate",
+        "byte_rate",
+        "pkt_len_mean",
+        "pkt_len_std",
+        "iat_mean",
+        "iat_std",
+        "iat_max",
+        "iat_p95",
+        "mavlink_msg_rate",
+        "mavlink_unique_msg_count",
+        "mavlink_msg_entropy",
+        "mavlink_seq_gap_mean",
+        "mavlink_seq_gap_std",
+        "mavlink_duplicate_seq_ratio",
+        "mavlink_command_rate",
+        "gcs_to_uav_ratio",
+        "altitude_mean",
+        "altitude_std",
+        "speed_mean",
+        "speed_std",
+        "roll_abs_mean",
+        "pitch_abs_mean",
+        "yaw_rate_mean",
+        "battery_delta"
+      ]
+    },
+    "X_extended": {
+      "n_features": 34,
+      "description": "Baseline plus 2 informative GCS semantic features",
+      "features": [
+        "packet_count",
+        "byte_count",
+        "packet_rate",
+        "byte_rate",
+        "pkt_len_mean",
+        "pkt_len_std",
+        "iat_mean",
+        "iat_std",
+        "iat_min",
+        "iat_max",
+        "iat_p95",
+        "udp_ratio",
+        "tcp_ratio",
+        "mean_udp_length",
+        "mean_payload_length",
+        "payload_length_std",
+        "mavlink_msg_rate",
+        "mavlink_unique_msg_count",
+        "mavlink_msg_entropy",
+        "mavlink_seq_gap_mean",
+        "mavlink_seq_gap_std",
+        "mavlink_duplicate_seq_ratio",
+        "mavlink_command_rate",
+        "gcs_to_uav_ratio",
+        "altitude_mean",
+        "altitude_std",
+        "speed_mean",
+        "speed_std",
+        "roll_abs_mean",
+        "pitch_abs_mean",
+        "yaw_rate_mean",
+        "battery_delta",
+        "landed_state_on_ground_ratio",
+        "position_altitude_drift_rate"
+      ]
+    }
+  },
+  "strict_exclusions_count": 23,
+  "temperature_delta_status": {
+    "handled": true,
+    "action": "DROPPED_FROM_DATASET",
+    "reason": "gz_x500 Gazebo model does not simulate battery temperature sensor; 100% null in raw telemetry. Zero-imputation prohibited by Contract Section 7."
+  },
+  "transition_leakage_prevented": true
+}
