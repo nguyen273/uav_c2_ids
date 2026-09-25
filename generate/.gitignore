@@ -1,0 +1,18 @@
+# Byte-compiled / optimized
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Output captures & logs
+*.pcap
+*.pcapng
+*.jsonl
+*.csv
+attempts/
+data/
+
+# Environments & OS
+.venv/
+venv/
+.DS_Store
+Thumbs.db

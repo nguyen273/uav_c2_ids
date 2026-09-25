@@ -1,0 +1,131 @@
+version: 1
+campaign:
+  name: uav-c2-sitl-v1
+  # Attack campaigns remain opt-in and are rejected until each controller is implemented.
+  duration_s: 180
+  attack_duration_s: 60
+  telemetry_rate_hz: 5
+  mavsdk_connection: "udp://:14540"
+  sitl_start_command: "HEADLESS=1 make px4_sitl gz_x500"
+  sitl_ready_timeout_s: 120
+  capture_filter: "udp and port 14540"
+  capture:
+    # Capture one logical C2 leg only. For GCS-facing IDS experiments use the
+    # proxy's GCS-side endpoint so modified downlink traffic is observable.
+    interface: "any"
+    vantage: "gcs_side"
+    filter: "udp and port 14540"
+    endpoint_filter: true
+    direct_gcs_port: 14540
+  attack_policy:
+    duration_s: 60
+    min_before_land_s: 10
+    eligible_events: [takeoff_stabilized, waypoint_reached, hover_start]
+    start_after_event: takeoff_stabilized
+    require_full_duration: true
+    # Never use simulator truth as an IDS model input. It is an evaluation source.
+    ground_truth_source: gazebo_transport
+    ground_truth_topic: "/world/default/pose/info"
+    proxy:
+      enabled_for: [FLOOD, REPLAY, FDI, C2_DEGRADATION, MAVLINK_ANOMALY]
+      gcs_bind_host: "127.0.0.1"
+      gcs_bind_port: 14545
+      gcs_relay_port: 14546
+      px4_host: "127.0.0.1"
+      px4_port: 14540
+      px4_target_port: 14580
+      topology_validated: true
+      runtime_integrated: true
+      # Capture only this side for a GCS-centric IDS; do not combine both legs.
+      capture_side: "gcs"
+  home:
+    latitude_deg: 47.397742
+    longitude_deg: 8.545594
+    altitude_m: 488.0
+  missions:
+    S1:
+      name: takeoff_hover_land
+      hover_s: 145
+      attack_trigger_events: [hover_start]
+      attack_trigger_max_occurrence: 1
+      waypoints: []
+    S2:
+      name: four_waypoints
+      loops: 2
+      waypoint_hover_s: 5
+      waypoint_timeout_s: 55
+      speed_m_s: 5.0
+      attack_trigger_events: [waypoint_reached]
+      attack_trigger_max_occurrence: 2
+      waypoints:
+        - [60, 0, 10]
+        - [60, 60, 10]
+        - [0, 60, 10]
+        - [0, 0, 10]
+    S3:
+      name: altitude_changes
+      loops: 3
+      waypoint_hover_s: 4
+      waypoint_timeout_s: 50
+      speed_m_s: 4.0
+      attack_trigger_events: [waypoint_reached]
+      attack_trigger_max_occurrence: 3
+      waypoints:
+        - [40, 0, 10]
+        - [40, 40, 20]
+        - [0, 40, 5]
+        - [0, 0, 10]
+    S4:
+      name: speed_turn_hover
+      loops: 2
+      waypoint_hover_s: 3
+      waypoint_timeout_s: 55
+      hover_s: 15
+      attack_trigger_events: [waypoint_reached]
+      attack_trigger_max_occurrence: 2
+      waypoints:
+        - [45, 0, 10]
+        - [45, 45, 10]
+        - [0, 45, 10]
+        - [0, 0, 10]
+      speed_m_s: 3.0
+  benign_seeds: [1001, 1002, 1003]
+  attack_types:
+    - FLOOD
+    - REPLAY
+    - FDI
+    # - SHADOW_GCS_MITM  # Re-enable after bounded scenario command mapping is implemented
+    - C2_DEGRADATION
+    - MAVLINK_ANOMALY
+  severities: [LOW, MEDIUM, HIGH]
+  attack_seeds: [2001, 2002]
+  attack_variants:
+    FDI:
+      - GCS_STATE_SPOOF
+      - GCS_POSITION_DRIFT
+  severity_profiles:
+    # Initial pilot values; calibrate before production dataset collection.
+    FLOOD:
+      LOW: {extra_packets_per_s: 50}
+      MEDIUM: {extra_packets_per_s: 200}
+      HIGH: {extra_packets_per_s: 800, pilot_only: true}
+    REPLAY:
+      LOW: {replay_packets_per_s: 5}
+      MEDIUM: {replay_packets_per_s: 20}
+      HIGH: {replay_packets_per_s: 50}
+    FDI_GCS_POSITION_DRIFT:
+      LOW: {max_error_m: 0.5, drift_rate_m_s: 0.05}
+      MEDIUM: {max_error_m: 1.5, drift_rate_m_s: 0.15}
+      HIGH: {max_error_m: 3.0, drift_rate_m_s: 0.30}
+    C2_DEGRADATION:
+      LOW: {delay_ms: 50, loss_pct: 5}
+      MEDIUM: {delay_ms: 150, loss_pct: 15}
+      HIGH: {delay_ms: 300, loss_pct: 30, pilot_only: true}
+    MAVLINK_ANOMALY:
+      LOW: {modified_packet_pct: 1}
+      MEDIUM: {modified_packet_pct: 5}
+      HIGH: {modified_packet_pct: 15}
+    FDI_GCS_STATE_SPOOF:
+      LOW: {modified_message_pct: 10}
+      MEDIUM: {modified_message_pct: 50}
+      HIGH: {modified_message_pct: 100}
