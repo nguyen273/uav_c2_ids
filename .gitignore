@@ -1,0 +1,43 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Caching and temporary files
+*.log
+wget-log*
+4933649
+_cell*.txt
+
+# OS and Editor metadata
+.DS_Store
+Thumbs.db
+*.kate-swp
+*.swp
+*~
+.idea/
+.vscode/
+
+# Large External Third-Party Datasets (>50 GB)
+AADM2025Dryad/
+AERPAW Air-to-ground channel sounding/
+AERPAW_PawPrints_SemiCircles/
+AFAR  2023_SigMF/
+Dataset-32 AERPAW Air-to-Ground Channel Sounding and Path Loss Measurements at 3.4 GHz with Linear and Zigzag UAV Trajectories/
+Dryad/
+Measured A2G Channel Dataset (CIR) in Multiple Sce/
+__MACOSX/
+
+# Cloned External Reference Repositories
+nckh3/
+uav-cas/
+ultis/
+
+# Campaign Multi-Gigabyte Raw Artifacts (Hosted on Kaggle: uav-c2-pcap)
+campaign_results_kaggle.zip
+data/campaign_results/*
+!data/campaign_results/README.md
+
+# Uncompressed out-of-fold predictions (>200 MB; compressed oof_predictions.csv.gz is tracked)
+oof_predictions.csv

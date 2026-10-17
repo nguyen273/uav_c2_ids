@@ -1,0 +1,53 @@
+# Copy this file once per new physical calibration session.
+# Leave unknown fields blank; never fill them with assumed/default values.
+schema_version: 1
+session_id: ""
+date_utc: ""
+operator: ""
+experiment: "conducted_tx_rx_power_reference"
+reference_plane: "" # e.g. USRP RF port, after cable, antenna feed point
+frequency_hz: null
+waveform: ""
+sample_rate_hz: null
+tx:
+  make_model: ""
+  serial: ""
+  node: ""
+  channel: ""
+  pa_enabled: null
+  gain_db: null
+  measured_output_power_dbm: null
+  measurement_instrument: ""
+  instrument_serial: ""
+  instrument_calibration_due_utc: ""
+rx:
+  make_model: ""
+  serial: ""
+  node: ""
+  channel: ""
+  pa_enabled: null
+  gain_db: null
+  measured_input_power_dbm: null
+  measured_output_level_dbfs: null
+  measurement_instrument: ""
+  instrument_serial: ""
+  instrument_calibration_due_utc: ""
+rf_path:
+  cable_ids: []
+  attenuator_ids: []
+  antenna_ids: []
+  total_known_attenuation_db: null
+  notes: ""
+uncertainty:
+  expanded_uncertainty_db: null
+  coverage_factor: null
+  method: ""
+repeatability:
+  repetitions_per_setting: null
+  standard_deviation_db: null
+artifacts:
+  raw_data_files: []
+  sha256: {}
+  calibration_certificate_files: []
+  processing_code_revision: ""
+  notes: ""

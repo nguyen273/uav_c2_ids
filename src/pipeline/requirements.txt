@@ -1,0 +1,10 @@
+numpy>=1.24
+pandas>=2.0
+scipy>=1.10
+openpyxl>=3.1
+scikit-learn>=1.3
+scapy>=2.5
+pyarrow>=12.0
+# mavsdk is installed inside the Docker container (Dockerfile.sitl) for the GCS node.
+# It is commented out here so host environments with newer Python versions do not fail.
+# mavsdk>=2.12,<3

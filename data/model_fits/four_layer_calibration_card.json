@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "overall_status": "simulation_only_c2_emulation_with_external_empirical_references",
+  "overall_claim": "PX4/MAVLink simulation/emulation pipeline with domain-specific empirical reference fits, recorded trajectory replay, and declared network stress profiles; C2 impairment calibration and independent end-to-end fidelity validation are not established.",
+  "layers_with_pathloss_fit_and_grouped_holdout": 1,
+  "layers": {
+    "layer1_propagation": {
+      "status": "pathloss_trend_fit_and_grouped_holdout_not_coupled",
+      "evidence": [
+        "data\\model_fits\\layer1_dataset32_pathloss_fit.json"
+      ],
+      "domain": [
+        "Dataset-32: 3.4 GHz, AERPAW Lake Wheeler, observed flights/range/altitude"
+      ],
+      "claim_limit": "Source-domain path-loss trend fit and grouped holdout only; the fit is not coupled into the SITL qdisc, and no absolute link budget or RF-to-C2 mapping is established."
+    },
+    "layer2_mobility": {
+      "status": "train_group_mobility_profile_fit_and_holdout_distribution_scored",
+      "evidence": [
+        "data\\missions\\missions_manifest.json",
+        "data\\model_fits\\layer2_afar_mobility_calibration.json"
+      ],
+      "kinematic_milestone_statuses": {},
+      "domain": [
+        "AFAR recorded GPS trajectories; pipeline-defined source-directory holdout recorded in manifest"
+      ],
+      "claim_limit": "P14 fits an equal-trace-weighted scalar-speed Gauss-Markov process, turn-rate reference, and median altitude profile from AFAR train groups; P7 couples seeded waypoint speeds, turn-related speed caps, and altitude profile into PX4 mission commands. Holdout JSD scores AFAR feature-distribution shift, while P13 separately scores SITL route tracking. This does not establish real-aircraft dynamics, timing fidelity, or swarm topology."
+    },
+    "layer3_link_kpis": {
+      "status": "external_radio_kpi_reference_only_c2_stress_assumptions",
+      "evidence": [
+        "data\\model_fits\\aerpaw_5g_kpi_holdout.json",
+        "data\\model_fits\\pawprints4g_rsrp_holdout.json"
+      ],
+      "domain": [
+        "Ericsson AERPAW 5G LTE/NR KPIs",
+        "Pawprints AERPAW LTE RSRP/RSRQ/RSSI and cell association"
+      ],
+      "claim_limit": "These datasets do not measure the target MAVLink C2 link; qdisc delay/loss/rate remain stress assumptions."
+    },
+    "layer4_end_to_end_fidelity": {
+      "status": "simulation_artifacts_no_target_C2_fidelity_validation",
+      "evidence": [],
+      "domain": [
+        "PX4 SITL/Gazebo + MAVLink/Containernet generated runs, when executed"
+      ],
+      "claim_limit": "No synchronized target C2 measurement/reference twin pair; generated PCAP/telemetry and IDS scores alone do not establish fidelity."
+    }
+  },
+  "claim_gates": {
+    "may_claim_domain_specific_pathloss_fit_and_validation": true,
+    "may_claim_target_c2_link_calibrated": false,
+    "may_claim_end_to_end_c2_calibrated": false,
+    "may_claim_physical_uav_equivalence": false
+  },
+  "required_next_evidence": [
+    "Run P8 on the manifest holdout source group, P13 for path/altitude errors, and P15 for per-quantity kinematic pilot gates; the P15 limits are within-source-group archive thresholds, not universal flight standards.",
+    "Obtain compatible synchronized C2 reference KPIs (radio configuration, MAVLink PCAP, loss, RTT/jitter, goodput) before fitting target-C2 qdisc mappings.",
+    "Validate end-to-end simulator outputs against independent compatible C2 references on predeclared trajectory, network, and telemetry metrics."
+  ]
+}

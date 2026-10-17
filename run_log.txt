@@ -1,0 +1,8 @@
+Run completed UTC: 2026-10-13T07:49:08.087900+00:00
+Feature source dir: /kaggle/input/datasets/nguyen273mmb/uav-c2-pcap
+Unique runs: 120
+Primary window: 1s
+Tuning mode: fixed
+Primary metrics rows: 21
+Primary OOF prediction rows: 1151619
+NOTE: This run uses precomputed features; PCAP extraction and raw-input hash audit were skipped.

@@ -1,0 +1,272 @@
+TEST PLAN — BASELINE ML EVALUATION FOR THE UAV C2 ATTACK DATASET
+Version: 1.0
+Date: 2026-10-12
+Workspace: D:\nckh3
+Purpose: Prepare a reproducible, conference-ready baseline evaluation that supports a dataset-generation contribution. This plan defines the experiment; it does not claim that any model has been run or that any performance result has been observed.
+
+===============================================================================
+1. EXPERIMENTAL QUESTION AND CLAIM BOUNDARY
+===============================================================================
+
+Primary research question
+Can simple supervised ML models distinguish benign from T4_DoS traffic in the generated UAV C2 campaign, when evaluation holds out complete flight missions so adjacent windows and paired runs cannot leak between training and test?
+
+Secondary questions
+1) Does detection transfer to a channel scenario not used for training?
+2) How does detection change with observation-window length (1, 2, or 5 seconds)?
+3) Does adding synchronized flight telemetry improve detection over network-only features?
+4) As an exploratory unknown-attack setting, can a benign-only Isolation Forest flag DoS windows?
+
+Claim boundary
+The present campaign supports binary benign-vs-T4_DoS detection in PX4 SITL/Gazebo + MAVLink/Containernet traffic under the declared Layer-3 stress profiles. The campaign does not currently support multi-class attack identification: only T0_Benign and T4_DoS are represented. It does not demonstrate calibrated physical RF propagation, an RF-to-C2 mapping, a real-aircraft IDS result, or end-to-end C2 fidelity. The external radio/channel datasets in data/ are reference/calibration inputs, not labeled MAVLink attack examples; do not concatenate them into IDS training data.
+
+===============================================================================
+2. DATA INVENTORY AND EXPERIMENTAL UNIT
+===============================================================================
+
+Observed campaign structure in data/campaign_results
+- 120 run directories, each intended to contain a captured C2 PCAP, flight telemetry, attack-event record, run metadata, and twin-scope record.
+- Factors encoded in run names/metadata: 3 missions (F1, F4, F7), 4 channel scenarios (C1_LOS, C2_Moderate, C3_NLOS, C4_Dynamic), 2 traffic labels (T0_Benign, T4_DoS), and 5 seeds per combination.
+- Nominal design: 3 x 4 x 2 x 5 = 120 runs; validate actual contents and status from every metadata.json before analysis.
+- T4_DoS event records give start_epoch_s, end_epoch_s, source IP, label, and semantics. The inspected example describes a bounded UDP flood at the GCS MAVLink UDP endpoint with no MAVLink payload mutation.
+- Primary raw source: c2_traffic.pcap. Supporting label source: attack_events.jsonl. flight_telemetry.csv is reserved for the separately reported sensor-fusion experiment. metadata.json and twin_scope.json describe conditions and scope; they are not model features.
+- `data/processed/{dataset32,aerpaw5g,pawprints4g}` and `data/model_fits/` hold empirical reference/calibration artifacts. Their manifests explicitly state that radio KPI files do not measure MAVLink packet loss/RTT/jitter/goodput and that the target C2 link is not calibrated.
+
+Analysis unit
+One row = one fixed-duration time window from one PCAP. The independent grouping unit for splitting/statistical reporting is the paired campaign condition (mission, channel, seed), keeping its benign and DoS runs together. Do not treat packets or neighboring windows as independent experimental replicates.
+
+Preflight inventory / quality gate (before fitting)
+1. Enumerate every run directory and parse metadata.json; record run_id, mission_id, channel_id, attack_id, seed, status, mobility group/partition, and available artifacts.
+2. Check expected factor counts and missing/duplicate combinations; verify each run status is complete and each artifact is parseable/non-empty.
+3. Parse every PCAP header and packet records. Record link type, packet count, first/last capture epoch, protocol coverage, malformed/truncated records, and file size.
+4. Check PCAP timestamps overlap telemetry timestamps and the attack interval. Check that each DoS event falls within its PCAP span; investigate clock offsets before labeling.
+5. Confirm attack windows and benign windows exist per run. Report run-level and window-level label counts before training.
+6. Check packet-level quantities for NaN/Inf, constant columns, duplicate rows, and abnormal timestamp gaps. Document exclusions with run ID and reason; do not silently discard runs.
+7. Keep a manifest of accepted/excluded runs and a hash of each raw input and generated feature file.
+
+Relevant repository files to consult
+- data/campaign_results/*/metadata.json
+- data/campaign_results/*/attack_events.jsonl
+- data/campaign_results/*/twin_scope.json
+- data/model_fits/four_layer_calibration_card.json
+- data/missions/missions_manifest.json
+- inspect_pcap.py (basic PCAP sanity parsing only; it is not a feature extractor)
+
+===============================================================================
+3. LABELING AND FEATURE EXTRACTION
+===============================================================================
+
+Main windowing setup
+- Primary window: non-overlapping 1-second bins, using PCAP packet timestamps in epoch seconds.
+- Sensitivity analysis: repeat the whole pipeline for 2-second and 5-second bins.
+- For each bin [t, t + W), set y=1 if at least half of the bin overlaps the attack interval [start_epoch_s, end_epoch_s); otherwise y=0. Use this rule consistently, including event boundaries. Record the exact rule in the methods section.
+- Benign run windows all have y=0. DoS-run windows before/after the event can be y=0 if they are captured and have valid context; the event interval is y=1. Do not label every packet in an attack run positive just because the run name contains DoS.
+- Retain run_id, condition key, mission, channel, seed, and bin start only as provenance/grouping fields outside X. Never pass them into the model.
+
+Network-only feature set (primary experiment)
+For each window, derive at minimum:
+A. Volume: packet_count, total_bytes, packets_per_second, bytes_per_second.
+B. Timing: inter-arrival mean, standard deviation, minimum, maximum, median, and selected quantiles; define behavior for bins with fewer than two packets.
+C. Packet size: captured/original length mean, standard deviation, minimum, maximum, median, and selected quantiles.
+D. Protocol composition: counts and proportions by IP protocol and transport protocol (UDP/TCP/ICMP/other), where parsable.
+E. Flow/direction summary: unique source/destination endpoint counts, number of 5-tuples, packet/byte ratios by direction where direction can be determined robustly.
+F. Optional MAVLink-aware features only if a parser is validated on captured payloads: message-ID counts/rates and invalid/non-MAVLink payload fraction. Keep this as an ablation, not a prerequisite; the DoS flood may be non-MAVLink UDP.
+
+Exclude raw endpoint IP/port, absolute epoch, payload contents, run/mission/channel/seed names, attack-event metadata, and any post-capture status field from the primary feature matrix. Raw IPs/ports can act as a shortcut because the attack source is known/fixed; use endpoint counts/direction rather than identity. Do not use the ground-truth attack interval as a feature.
+
+Optional network + telemetry experiment (reported separately)
+- Join telemetry to network windows by timestamp after verifying the clock basis and offset. Aggregate within each window (mean/std/min/max as appropriate) rather than copying the nearest future sample.
+- Candidate features: speed, altitude_relative_m, distance_to_gcs_m, mission progress, is_in_air, and flight-mode composition/transition counts. Do not use latitude/longitude or absolute time as direct features in the first fusion run because they can reveal mission identity.
+- Report the change against the identical network-only split. This answers whether physical/flight behavior adds information; it is not the primary C2-traffic-only claim.
+
+Preprocessing
+- Fit imputation, scaling, feature selection, and any threshold selection on training data only inside each split.
+- Scale continuous features for Logistic Regression, SVM, and kNN. Tree models do not require scaling, but use the same raw feature definitions.
+- Do not oversample before splitting. Prefer class_weight='balanced' for supported classifiers; if resampling is studied, resample only the training fold and report it as a separate condition.
+- Use one fixed feature schema for all models within a given experiment.
+
+===============================================================================
+4. BASELINE MODELS AND WHY THEY ARE INCLUDED
+===============================================================================
+
+Primary baseline suite (run all on the same windows, feature set, and folds)
+1. DummyClassifier (most_frequent and/or stratified): sanity/reference floor. It demonstrates why accuracy alone is misleading.
+2. Logistic Regression (L2): fast, interpretable linear reference; checks whether traffic separation is approximately linear.
+3. Decision Tree: simple nonlinear and interpretable reference; constrain depth/minimum leaf size to reduce overfit.
+4. Random Forest: primary tree-ensemble baseline; captures nonlinear feature interactions and is common in UAV/IDS comparisons.
+5. Extra Trees: tree-ensemble comparator with randomized split thresholds; checks whether added tree randomization helps.
+6. RBF-SVM: nonlinear margin-based comparator; standardize within-fold, cap the tuning grid for practical runtime.
+7. k-Nearest Neighbors: distance-based comparator; standardize within-fold and use a small predeclared k grid.
+8. Gaussian Naive Bayes: lightweight probabilistic baseline; useful even if its conditional-independence assumption is simplistic.
+9. HistGradientBoosting or XGBoost (choose one): boosted-tree comparator. Use HistGradientBoosting if avoiding an extra package dependency; choose XGBoost only if installed and version is recorded.
+
+Minimal set if conference time/compute is tight: Dummy, Logistic Regression, Decision Tree, Random Forest, RBF-SVM, Gaussian Naive Bayes. Keep Extra Trees, kNN, and boosting as secondary models.
+
+Exploratory only
+- Isolation Forest trained on benign training windows only; tune contamination/decision threshold on validation data, never on the final test fold. It is not a supervised baseline and must be reported separately.
+- Optional temporal neural baseline (1D-CNN/GRU/LSTM) only after tabular ML results are complete and if sequence modeling is needed. The conference contribution is dataset generation; avoid letting the model study dominate the paper.
+
+Reproducibility defaults
+- Fix and record seeds for all stochastic estimators, feature extraction, and split construction.
+- Use a declared, modest hyperparameter grid for each model. Freeze the grid before reading outer-fold test results.
+- Save package versions, CPU/runtime details, model parameters, feature list, label rule, and split IDs.
+
+===============================================================================
+5. SPLITS AND EVALUATION PROTOCOL
+===============================================================================
+
+Primary protocol: leave-one-mission-out outer evaluation
+- Outer fold 1: test all runs/windows for F1; train on F4 and F7.
+- Outer fold 2: test F4; train on F1 and F7.
+- Outer fold 3: test F7; train on F1 and F4.
+- This gives a direct, interpretable test of generalization to a held-out recorded route/mission. Keep every window from a run in one side. The outer test mission is never used for feature selection, preprocessing fit, hyperparameter selection, or threshold selection.
+- Within the outer training missions, tune/select hyperparameters with grouped folds using group=(mission_id, channel_id, seed), keeping benign and DoS runs from the same condition together. If sample size limits tuning, use the predeclared default parameters and say so; do not tune on the outer test mission.
+- Because there are only three mission groups, report all three outer-fold results and mean ± standard deviation; do not imply a high-precision estimate of performance across all real UAV missions.
+
+Secondary protocol: leave-one-channel-scenario-out
+- Four outer folds: hold out C1_LOS, then C2_Moderate, C3_NLOS, C4_Dynamic; train on the other three scenarios.
+- Keep all windows from each PCAP in one side. Ensure benign/DoS paired runs for a mission-seed condition do not cross the fold boundary.
+- Report results per held-out scenario and macro-average. This evaluates channel-condition transfer, not physical channel calibration.
+
+Optional protocol: grouped seed robustness
+- For each channel and mission combination, hold out one seed at a time, always grouping the matching benign and DoS runs together. This measures seed sensitivity but is not a replacement for held-out mission/channel evaluation.
+
+Do not use random row-level train_test_split or ordinary stratified k-fold on windows. Adjacent bins and repeated windows within the same PCAP are correlated and would cause serious leakage.
+
+===============================================================================
+6. METRICS AND REPORTING
+===============================================================================
+
+Primary metrics
+- DoS-class precision, recall, and F1.
+- Macro-F1 and balanced accuracy.
+- PR-AUC (average precision) for DoS; report positive prevalence alongside it.
+- ROC-AUC as a secondary discrimination metric.
+- Confusion matrix aggregated by outer fold; report false-positive rate (FPR) and false negatives.
+- Inference latency per window and throughput (windows/s) on the same recorded machine; distinguish CPU/GPU and batch/online measurements.
+
+Why these metrics
+The campaign is balanced by run count, but window labels need not be balanced because attack duration and run duration differ. Accuracy can hide false alarms or missed attacks. PR-AUC, DoS recall, F1, and FPR directly reflect the detector trade-off. State whether metrics are macro, weighted, or class-specific.
+
+Aggregation and uncertainty
+- First compute metrics per outer test mission (and per channel holdout for the secondary protocol), then report the three/four fold values and their mean ± standard deviation.
+- Also provide a pooled out-of-fold confusion matrix and pooled PR/ROC curves, clearly labeled as pooled predictions.
+- Do not calculate confidence intervals by treating every window as independent. If uncertainty intervals are added, bootstrap whole held-out runs/condition groups (cluster bootstrap), not individual windows.
+- Compare models using the same outer folds. Statistical tests should use fold/run-level results and be described cautiously given only three mission folds.
+
+Required tables/figures
+1. Dataset design table: mission x channel x class x seed, number of runs and accepted runs.
+2. Data-quality table: PCAP/telemetry/event availability, packets, duration, exclusions.
+3. Window-label distribution by class, mission, channel, and window length.
+4. Main model table: per-mission DoS precision/recall/F1, macro-F1, PR-AUC, FPR, latency; mean ± SD.
+5. Leave-one-channel-out table.
+6. Confusion matrix and precision-recall curve from outer-fold predictions.
+7. Optional feature-importance/ablation chart (network-only vs fusion; core features vs MAVLink-aware features).
+
+===============================================================================
+7. ABLATIONS AND SENSITIVITY CHECKS
+===============================================================================
+
+Run in this order, keeping the primary split fixed:
+A. Window size: 1 s (primary), 2 s, 5 s.
+B. Feature family: volume only; volume + timing/size; all network-only features; optional MAVLink-aware addition.
+C. Class imbalance handling: no weighting vs class_weight='balanced'.
+D. Network-only vs network + telemetry.
+E. Threshold: default 0.5 vs threshold selected on training validation to meet a predeclared FPR target. Never choose threshold from test data.
+F. Optional unseen-attack proxy: Isolation Forest trained on benign only. Since only T4_DoS exists, call this novelty/anomaly evaluation for the observed DoS family, not evidence of general zero-day detection.
+
+Do not run all possible combinations before the primary suite; prioritize A and D if schedule is tight. Record each experiment and rationale in a run log.
+
+===============================================================================
+8. EXECUTION ORDER AND DELIVERABLES
+===============================================================================
+
+Phase 1 — Freeze protocol
+- Confirm conference deadline, compute environment, software versions, label rule, model list, splits, and metrics.
+- Save this plan unchanged as the protocol version used for the primary result. Any later deviation goes in a dated change log with reason.
+
+Phase 2 — Audit campaign
+- Build a machine-readable inventory of 120 expected runs and actual valid runs.
+- Resolve missing/corrupt files, timestamp mismatches, and any non-complete runs before modeling.
+- Produce a concise data quality report. No performance claims yet.
+
+Phase 3 — Build extractor and labeled tables
+- Implement PCAP-to-window extractor with deterministic output and unit tests for timestamp boundaries, protocol parsing, and event labeling. (Tests here refer to validating the extraction implementation; do not treat them as model evidence.)
+- Produce one feature table per window length and one provenance manifest. Include a hash tying each row to a run/bin without feeding provenance to the model.
+- Manually inspect a small number of benign, attack, and event-boundary windows against PCAP/event timestamps.
+
+Phase 4 — Run baseline suite
+- Fit the primary model suite on 1-second network-only windows with leave-one-mission-out outer folds.
+- Save out-of-fold predictions, fold definitions, fitted preprocessing/model artifacts, metrics, and logs.
+- Re-run the top interpretable/strong models with 2/5-second windows and leave-one-channel-out.
+
+Phase 5 — Explain and robustness-check
+- Produce feature importance/permutation importance for RF/Extra Trees/boosting using held-out folds where feasible.
+- Run network+telemetry ablation and the optional Isolation Forest experiment only after the primary results are frozen.
+- Investigate suspiciously perfect results for leakage (raw IP, time, run identity, duplicated/near-duplicate windows, or split bug).
+
+Phase 6 — Prepare conference evidence
+- Draft methods describing simulation/emulation scope and calibration limits accurately.
+- Prepare dataset-design, quality, split, model, and results tables; figures; exact code/config; package versions; and reproducibility notes.
+- Make claims only after reviewing out-of-fold predictions and error cases. Clearly separate observed measurements, simulation assumptions, and interpretation.
+
+Expected files to create during implementation (suggested)
+- results/dataset_inventory.csv
+- results/data_quality_report.txt
+- results/features_1s.csv, features_2s.csv, features_5s.csv
+- results/split_manifest.json
+- results/model_metrics.csv
+- results/oof_predictions.csv
+- results/experiment_config.json
+- results/run_log.txt
+- results/figures/ (PR curve, confusion matrix, split/design diagram)
+These are planned outputs, not files currently present.
+
+===============================================================================
+9. REFERENCES AND WHY THEY ARE RELEVANT
+===============================================================================
+
+[1] Changxiao Zhao, Yulin Fang, Kenian Wang. “BiTCN-based DoS attack detection method for UAV command and control link.” Acta Aeronautica et Astronautica Sinica, 47(1), 2026, article 332048. DOI: 10.7527/S1000-6893.2025.32048.
+https://hkxb.buaa.edu.cn/EN/10.7527/S1000-6893.2025.32048
+Why: Directly studies DoS detection on a UAV C2 link; combines network and physical data and compares against FNN, 1D-CNN, LSTM, and GRU. Supports the C2 threat framing and motivates keeping sensor fusion as a separate ablation. It is not a direct replication because this plan's primary baselines are conventional ML on PCAP-derived windows.
+
+[2] Ahmet Faruk Görmüş, Serkan Gönen, Abdulsamet Haşıloğlu, Ercan Nurcan Yılmaz. “Evaluation of Machine Learning Models for Attack Detection in Unmanned Aerial Vehicle Networks.” Turkish Journal of Mathematics and Computer Science, 16(2), 2024. DOI: 10.47000/tjmcs.1568820.
+https://doi.org/10.47000/tjmcs.1568820
+Why: UAV-network attack-detection comparison using Random Forest, CatBoost, XGBoost, AdaBoost, and ANN. Supports inclusion of RF and a boosted-tree model as relevant UAV IDS baselines; its CICIOT2023 dataset differs from this MAVLink C2 campaign.
+
+[3] “UAVIDS-2025: A Benchmark Dataset for Intrusion Detection in UAV Networks Using Machine Learning Techniques.” 2025 IEEE Conference on Communications and Network Security (CNS 2025). DOI: 10.1109/CNS66487.2025.11194990.
+https://doi.org/10.1109/CNS66487.2025.11194990
+Why: Recent UAV-specific dataset paper. Useful precedent for making dataset design, attack coverage, reproducibility, and baseline evaluation central to the conference narrative. The dataset is NS-3-based and should not be treated as interchangeable with this PX4/MAVLink/Containernet data.
+
+[4] Jason Whelan, Thanigajan Sangarapillai, Omar Minawi, Abdulaziz Almehmadi, Khalil El-Khatib. “Novelty-based Intrusion Detection of Sensor Attacks on Unmanned Aerial Vehicles.” Proceedings of the 16th ACM Symposium on QoS and Security for Wireless and Mobile Networks (WiSec), 2020. Dataset: “UAV Attack Dataset,” IEEE DataPort, DOI: 10.21227/00dg-0d12.
+https://doi.org/10.21227/00dg-0d12
+https://github.com/jasonotu/MAVIDS
+Why: UAV/MAVLink-adjacent novelty-based IDS precedent. Motivates a clearly separated benign-only anomaly-detection experiment; it does not justify claiming unknown-attack generalization from a single DoS family.
+
+[5] Md. Alamgir Hossain, Waqas Ishtiaq, Md. Samiul Islam. “A Comparative Analysis of Ensemble-Based Machine Learning Approaches With Explainable AI for Multi-Class Intrusion Detection in Drone Networks.” Security and Privacy, 2026. DOI: 10.1002/spy2.70164.
+https://doi.org/10.1002/spy2.70164
+Why: Recent drone-network comparison of Random Forest, Extra Trees, AdaBoost, XGBoost, and CatBoost, with macro-F1 and other metrics. Supports ensemble baseline choices and multi-metric reporting. Its dataset/task is multiclass; this campaign currently supports benign-vs-DoS only.
+
+[6] Local campaign methodology and scope artifacts (primary sources for this particular dataset)
+- data/model_fits/four_layer_calibration_card.json
+- data/campaign_results/*/metadata.json
+- data/campaign_results/*/twin_scope.json
+- data/campaign_results/*/attack_events.jsonl
+- data/missions/missions_manifest.json
+Why: These define what was simulated, how the attack windows are labeled, how mission/channel/seed factors are encoded, and what calibration/physical-equivalence claims are explicitly not established. Cite these in the dataset/methods supplement or archive them with the release.
+
+===============================================================================
+10. FINAL CHECKLIST BEFORE SUBMITTING RESULTS
+===============================================================================
+
+[ ] All run IDs and factor counts audited; exclusions explained.
+[ ] PCAP, event, and telemetry timestamps aligned or offset documented.
+[ ] Labels generated from event intervals, not from run-name shortcut.
+[ ] No raw run identity, source IP, attack ID, or absolute time in X.
+[ ] Every PCAP and paired condition remains entirely inside one split.
+[ ] Held-out mission never used during preprocessing/model/threshold selection.
+[ ] Hyperparameter grid and primary metric fixed before final evaluation.
+[ ] Report per-mission results, macro-F1, DoS recall, PR-AUC, FPR, confusion matrix, and latency.
+[ ] Distinguish network-only result from telemetry-fusion result.
+[ ] Describe dataset as simulated/emulated, and state RF/C2 calibration limits.
+[ ] Include scripts/configs, package versions, split manifest, and out-of-fold predictions for reproducibility.

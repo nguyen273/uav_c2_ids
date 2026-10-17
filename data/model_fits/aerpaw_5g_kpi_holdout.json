@@ -1,0 +1,145 @@
+{
+  "evaluation_type": "AERPAW_Dryad_5G_external_empirical_KPI_check",
+  "source": "Dryad DOI 10.5061/dryad.wh70rxx06",
+  "role": "technology-specific LTE/NR network KPI evidence; not target C2 calibration, not Dataset-32/3.6 GHz propagation fit",
+  "grouping": "leave-one-yaw-orientation-out; only two orientations from one campaign, so exploratory and weak external generalization evidence",
+  "dependence_note": "Rows are temporally sampled within two flights and are not independent replicates; metrics are descriptive and no row-level confidence interval is implied.",
+  "results": {
+    "LTE": {
+      "observations": 5847,
+      "orientation_summary": {
+        "yaw315": {
+          "n": 2898,
+          "rsrp_dbm_median": -77.0,
+          "sinr_db_median": 20.0,
+          "throughput_mbps_median": null,
+          "distance_horizontal_m_range": [
+            19.051432163113063,
+            466.0259831516193
+          ]
+        },
+        "yaw45": {
+          "n": 2949,
+          "rsrp_dbm_median": -76.0,
+          "sinr_db_median": 21.0,
+          "throughput_mbps_median": null,
+          "distance_horizontal_m_range": [
+            19.725550579104542,
+            465.881299516078
+          ]
+        }
+      },
+      "orientation_holdout_folds": [
+        {
+          "heldout_orientation": "yaw315",
+          "training_orientations": [
+            "yaw45"
+          ],
+          "rsrp_distance_slope_db_per_decade": -16.264078298553482,
+          "heldout_rsrp_trend_metrics": {
+            "n": 2898,
+            "rmse": 3.872809049367645,
+            "mae": 3.130361209718926,
+            "bias_pred_minus_observed": -6.3551648415810205e-15,
+            "unit": "dB; demeaned trend"
+          }
+        },
+        {
+          "heldout_orientation": "yaw45",
+          "training_orientations": [
+            "yaw315"
+          ],
+          "rsrp_distance_slope_db_per_decade": -15.83659269713831,
+          "heldout_rsrp_trend_metrics": {
+            "n": 2949,
+            "rmse": 3.635347070023965,
+            "mae": 2.8828477405336157,
+            "bias_pred_minus_observed": -8.249909553213236e-15,
+            "unit": "dB; demeaned trend"
+          }
+        }
+      ],
+      "interpretation": "Orientation holdout is a same-campaign check with one training orientation; report per fold and do not call it broad external validation. RSRP trend score is demeaned and does not validate absolute propagation intercept."
+    },
+    "NR": {
+      "observations": 5618,
+      "orientation_summary": {
+        "yaw315": {
+          "n": 2794,
+          "rsrp_dbm_median": -101.0,
+          "sinr_db_median": 25.0,
+          "throughput_mbps_median": 311.0,
+          "distance_horizontal_m_range": [
+            19.051432163113063,
+            466.0259831516193
+          ]
+        },
+        "yaw45": {
+          "n": 2824,
+          "rsrp_dbm_median": -99.0,
+          "sinr_db_median": 25.0,
+          "throughput_mbps_median": 313.0,
+          "distance_horizontal_m_range": [
+            19.725550579104542,
+            465.881299516078
+          ]
+        }
+      },
+      "orientation_holdout_folds": [
+        {
+          "heldout_orientation": "yaw315",
+          "training_orientations": [
+            "yaw45"
+          ],
+          "rsrp_distance_slope_db_per_decade": -4.809257787124402,
+          "heldout_rsrp_trend_metrics": {
+            "n": 2794,
+            "rmse": 5.545571509537058,
+            "mae": 4.408772806156956,
+            "bias_pred_minus_observed": 1.7903439011278115e-15,
+            "unit": "dB; demeaned trend"
+          },
+          "heldout_throughput_from_sinr_metrics": {
+            "n": 2794,
+            "rmse": 21.259862984687675,
+            "mae": 14.770514684811538,
+            "bias_pred_minus_observed": 1.3459102324647334,
+            "unit": "Mbps"
+          },
+          "throughput_model": {
+            "type": "linear fit on training orientation",
+            "slope_mbps_per_db": 1.8512059335925752,
+            "intercept_mbps": 261.4028173099295
+          }
+        },
+        {
+          "heldout_orientation": "yaw45",
+          "training_orientations": [
+            "yaw315"
+          ],
+          "rsrp_distance_slope_db_per_decade": -5.031678914727651,
+          "heldout_rsrp_trend_metrics": {
+            "n": 2824,
+            "rmse": 4.597194622774254,
+            "mae": 3.696197717866865,
+            "bias_pred_minus_observed": 6.2801510922705735e-15,
+            "unit": "dB; demeaned trend"
+          },
+          "heldout_throughput_from_sinr_metrics": {
+            "n": 2824,
+            "rmse": 18.803535474835833,
+            "mae": 14.297050072535233,
+            "bias_pred_minus_observed": -0.905210006081167,
+            "unit": "Mbps"
+          },
+          "throughput_model": {
+            "type": "linear fit on training orientation",
+            "slope_mbps_per_db": 2.4519236368869155,
+            "intercept_mbps": 245.2141917421302
+          }
+        }
+      ],
+      "interpretation": "Orientation holdout is a same-campaign check with one training orientation; report per fold and do not call it broad external validation. RSRP trend score is demeaned and does not validate absolute propagation intercept."
+    }
+  }
+}

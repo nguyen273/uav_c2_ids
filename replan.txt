@@ -1,0 +1,212 @@
+Dưới đây là toàn bộ nội dung bản **Kế hoạch Nghiên cứu Tổng thể (Phiên bản 2.0)** kèm thiết kế thuật toán chi tiết cho **`P5`** và **`P7`** để bạn có thể bôi đen và sao chép trực tiếp sang file Word:
+
+# KẾ HOẠCH NGHIÊN CỨU TỔNG THỂ (V2.0): XÂY DỰNG BỘ DỮ LIỆU & HỆ THỐNG PHÁT HIỆN – NGĂN CHẶN TẤN CÔNG KÊNH TRUYỀN C2 CỦA UAV DỰA TRÊN BẢN SAO SỐ HIỆU CHỈNH ĐA LỚP
+
+**Phiên bản:** 2.0 (Hợp nhất & Nâng cấp thuật toán P5, P7, P9, P10, P14)
+
+**Ngày cập nhật:** 14/10/2026
+
+**Mục tiêu cốt lõi:** Xây dựng bộ dữ liệu Cyber-Physical có nhãn đa chiều và kiến trúc bản sao số (Digital Twin) phục vụ phát hiện – ngăn chặn xâm nhập (IDPS) trên kênh truyền điều khiển – chỉ huy (Command and Control - C2) giao thức MAVLink của UAV, hiệu chỉnh từ các bộ dữ liệu đo thực nghiệm công khai ([NSF AERPAW](https://aerpaw.org/dataset/dataset-32-aerpaw-air-to-ground-channel-sounding-and-path-loss-measurements-at-3-4-ghz-with-linear-and-zigzag-uav-trajectories/)) theo phương pháp luận 4 lớp kế thừa và mở rộng từ [UAV-CAS (arXiv:2606.17845)](https://arxiv.org/abs/2606.17845).
+
+### 1. Định vị khoa học hoàn chỉnh và Sự thống nhất phạm vi nghiên cứu
+
+Bản kế hoạch V2.0 này hợp nhất toàn bộ các phụ lục lịch sử trước đây thành một lộ trình kỹ thuật duy nhất, giải quyết triệt để sự đứt gãy giữa mô hình suy hao đường truyền (Layer 1) với bộ mô phỏng mạng (Layer 3), mở rộng đầy đủ 5 lớp lưu lượng C2/MAVLink và bổ sung cơ chế **Ngăn chặn chủ động (Active IPS / Safety Quarantine)** bên cạnh **Phát hiện (IDS)**.
+
+* **Tuyên bố định vị khoa học chuẩn xác (Claim Positioning):**
+> "Một bản sao số phần mềm Cyber-Physical cho kênh truyền điều khiển UAV–GCS (PX4 SITL/Gazebo + MAVLink + Containernet), được hiệu chỉnh thực nghiệm theo từng miền dữ liệu ở lớp suy hao đường truyền và động học quỹ đạo, kết nối động qua chuỗi suy giảm liên kết giải tích PHY-to-MAC, tích hợp cổng kiểm soát trung gian (In-Path C2 Proxy) để sinh dữ liệu phát hiện và ngăn chặn tấn công đa tầng."
+
+
+* **Ba nguyên tắc ưu tiên trong thiết kế thuật toán:**
+1. **Độ hiệu quả (Efficiency):** Tách nhịp cập nhật kênh truyền ($1\text{ Hz}$ có ngưỡng trễ Hysteresis) khỏi luồng truyền gói tin thời gian thực và gom đặc trưng theo cửa sổ trượt $O(1)$ bộ nhớ, đảm bảo máy chủ mô phỏng không bị nghẽn CPU hay rơi gói tin giả tạo.
+2. **Tính khả thi (Feasibility):** Tận dụng 100% ngăn xếp phần mềm mã nguồn mở sẵn có (Ubuntu 22.04, Docker, Containernet, `tc netem`, [PX4 SITL v1.14](https://docs.px4.io/v1.14/en/sim_gazebo_gz/), Gazebo `gz_x500`, `mavlink-router`, [MAVSDK](https://github.com/mavlink/MAVSDK-docs/blob/main/en/cpp/guide/connections.md), `pymavlink`) và các bộ dữ liệu đã tải cục bộ mà không phụ thuộc vào phần cứng bay hay thiết bị SDR thực tế.
+3. **Tính chính xác & Kỷ luật thống kê (Accuracy & Statistical Rigor):** Giữ nguyên kỷ luật phân chia dữ liệu theo nhóm độc lập (`flight_id`, `source_group_id`), không gộp chung các miền tần số khác nhau, và sử dụng chuỗi công thức giải tích chuẩn IEEE 802.11 OFDM như [UAV-CAS](https://www.themoonlight.io/en/review/uav-cas-a-calibrated-digital-twin-dataset-for-intrusion-detection-in-uav-swarm-networks) thay cho các hàm gán tuyến tính tùy tiện.
+
+
+
+### 2. Ma trận phân vai các bộ dữ liệu tham chiếu công khai (Đã chuẩn hóa trích dẫn)
+
+Mỗi bộ dữ liệu thực nghiệm chỉ hiệu chỉnh đúng đại lượng vật lý được đo lường trong miền tần số và hình học tương ứng:
+
+| Bộ dữ liệu / Nguồn công khai | Lớp sử dụng | Đại lượng hiệu chỉnh / Đối chiếu | Giới hạn miền & Quy tắc chống rò rỉ (Anti-Leakage) |
+| --- | --- | --- | --- |
+| **[AERPAW Dataset-32 (3.4 GHz)](https://aerpaw.org/dataset/dataset-32-aerpaw-air-to-ground-channel-sounding-and-path-loss-measurements-at-3-4-ghz-with-linear-and-zigzag-uav-trajectories/)** | **Layer 1 Core** (Suy hao đường truyền chính) | Khớp hệ số suy hao theo khoảng cách 3D $\beta = 25.78\text{ dB/decade}$ ($n \approx 2.578$) và độ lệch chuẩn thăng giáng $\sigma_{\text{shadow}}$ trên 4 chuyến bay (136.987 dòng, cự ly $54.9–444.6\text{ m}$, độ cao $54.8–61.1\text{ m}$). | Kiểm định chéo Leave-One-Flight-Out (LOFO RMSE $2.88–4.13\text{ dB}$). Không gộp chung với dữ liệu $3.6\text{ GHz}$ và không suy diễn hệ số phụ thuộc độ cao $\alpha$ từ một mức trần bay. |
+| **[Measured A2G CIR (3.6 GHz)](https://pubmed.ncbi.nlm.nih.gov/41114292/)** ([Bản PMC](https://pmc.ncbi.nlm.nih.gov/articles/PMC12528908/)) | **Layer 1 Cross-Domain** (Đối chiếu đa môi trường) | Khớp độc lập xu hướng suy hao ở $3.6\text{ GHz}$ qua 3 môi trường (sân vận động, nông trại, mặt nước) ở độ cao $10\text{ m}$ và $15\text{ m}$; trích xuất độ trải trễ đa đường (RMS delay spread). | Kiểm định Leave-One-Scenario-Altitude-Group-Out (6 nhóm). Giữ làm nhánh đối chiếu độc lập, không trộn hệ số vào nhánh $3.4\text{ GHz}$. |
+| **[AERPAW AFAR Challenge (IEEE Data Descriptions 2025)](https://www.researchgate.net/publication/396190658_Collection_UAV-Based_RSS_Measurements_From_the_AFAR_Challenge_in_Digital_Twin_and_Real-World_Environments)** | **Layer 2 Core** (Động học & Quỹ đạo bay) | Trích xuất thư viện quỹ đạo GPS thực địa (15 quỹ đạo thuộc 5 nhóm nguồn `288, 300, 301, 309, 328`) và khớp mô hình vận tốc tự hồi quy Gauss–Markov ($\alpha=0.970, \mu=3.05\text{ m/s}, \sigma=0.438\text{ m/s}$). | Đổi từ cố định 1 nhóm test sang **5-fold Leave-One-Source-Group-Out (LOGO-CV)** để triệt tiêu sai lệch chọn mẫu đơn lẻ và tăng bậc tự do thống kê. |
+| **[AERPAW AADM Challenge (arXiv:2602.16163)](https://arxiv.org/html/2602.16163v1)** ([Dataset-30](https://aerpaw.org/dataset/dataset-30-uav-based-wireless-usrp-and-lora-measurements-from-aerpaw-autonomous-data-mule-aadm-challenge-in-digital-twin-and-real-world-environments/)) | **Layer 2 / Layer 3 / Layer 4 Reference** | Bổ sung quỹ đạo bay (33 chuyến thực địa, 45 chuyến DT), đánh giá quan hệ $\text{SNR} \sim \log_{10}(d)$ và so sánh khoảng cách Wasserstein giữa phân phối Digital Twin với thực địa theo từng trạm gốc (BS). | Giữ tách biệt tập `development` (DT) và `testbed` (thực địa); không quy đổi tốc độ tải dữ liệu data-mule sang goodput của giao thức MAVLink C2. |
+| **[Ericsson 5G NSA (Dryad)](https://datadryad.org/dataset/doi:10.5061/dryad.wh70rxx06)** & **Pawprints 4G** | **Layer 3 External KPI Reference** | Đánh giá quan hệ thực nghiệm $\text{RSRP/SINR} \rightarrow \text{CQI/MCS/Throughput}$ trên mạng di động mặt đất phục vụ UAV (11.465 dòng 5G NSA ở $30\text{ m}$; 1.217 dòng kết nối 4G ở $50\text{ m}$). | Dùng làm nhánh tham chiếu KPI mạng di động độc lập; không dùng để gán trực tiếp độ trễ hay mất gói cho liên kết Wi-Fi/OFDM của MAVLink. |
+| **[RL-AERPAW-DT Dataset-34](https://aerpaw.org/dataset/dataset-34-reinforcement-learning-with-3d-uav-network-digital-twin-rl-aerpaw-dt/)** | **Layer 3 NLOS Stress Comparator** | Tham chiếu mức độ sụt giảm SNR khi chuyển trạng thái tầm nhìn thẳng sang bị che khuất ($\text{LOS} \leftrightarrow \text{NLOS}$) từ mô hình dò tia 3D (Ray-Tracing). | Chỉ dùng để định nghĩa biên độ suy giảm cho kịch bản kênh `C3_NLOS` và `C4_Dynamic`, không coi là dữ liệu đo RF thực địa. |
+| **[CACD MAVLink Proxy (RSSR 2026)](https://www.conference-publishing.com/toc/ASEWS26RSSR)**, **[Benchellal et al. (2026)](https://arxiv.org/html/2606.22289v1)**, **[Hassler et al. (2024)](https://github.com/uamughal/UAVs-Dataset-Under-Normal-and-Cyberattacks)**, **[UAV-GCS-IDS (Hadi et al., 2026)](https://figshare.com/articles/dataset/UAV-GCS_Intrusion_Detection_Dataset_UAV-GCS-IDS_/29608541)** | **Lớp C2 Attack, Feature & Active IPS** | Chuẩn hóa ngữ nghĩa tấn công MAVLink (Replay, FDI, MITM, Protocol Flood), hợp nhất đặc trưng Cyber-Physical và thiết kế cổng ngăn chặn In-Path Proxy + `HOLD_SAFE`. | Dùng để thiết kế kịch bản tấn công, nhãn phản ứng ngăn chặn và kiến trúc đặc trưng; không dùng để hiệu chỉnh kênh truyền vô tuyến. |
+
+### 3. Kiến trúc Pipeline 4 Lớp Đóng Vòng (Active-Coupled Digital Twin)
+
+Luồng dữ liệu trong phiên bản V2.0 được kết nối xuyên suốt để mọi thay đổi về vị trí bay và hành vi tấn công đều phản ánh trực tiếp lên cả kênh mạng lẫn trạng thái điều khiển bay:
+
+1. **P2 & P3 (Layer 1 – Empirical Propagation Calibration):** Xử lý dữ liệu chuẩn hóa [Dataset-32](https://aerpaw.org/dataset/dataset-32-aerpaw-air-to-ground-channel-sounding-and-path-loss-measurements-at-3-4-ghz-with-linear-and-zigzag-uav-trajectories/) ($3.4\text{ GHz}$) và [A2G CIR](https://pubmed.ncbi.nlm.nih.gov/41114292/) ($3.6\text{ GHz}$), xuất thẻ mô hình `layer1_dataset32_pathloss_fit.json` chứa hệ số suy hao $\beta = 25.78$ ($n = 2.578$), phương sai phần dư $\sigma_{\text{res}}^2$ và miền giá trị hợp lệ ($d \in [55, 445]\text{ m}$).
+2. **P4, P13, P14, P15 (Layer 2 – Kinematic & Trajectory Calibration):** Trích xuất quỹ đạo thực từ [AFAR](https://www.researchgate.net/publication/396190658_Collection_UAV-Based_RSS_Measurements_From_the_AFAR_Challenge_in_Digital_Twin_and_Real-World_Environments), khớp tham số vận tốc Gauss–Markov và giới hạn tốc độ góc quay (turn-rate cap P95 = $10.51^\circ/\text{s}$) bằng quy trình kiểm định chéo **5-fold LOGO-CV** qua toàn bộ 5 nhóm nguồn, sau đó biên dịch thành chuỗi lệnh bay MAVSDK cho PX4 SITL.
+3. **P5 (Layer 3 – Physics-Coupled Link Engine):** Nhận tọa độ 3D thời gian thực từ PX4 SITL, kết hợp tham số $(n, \sigma)$ từ `P3` và kịch bản môi trường (`C1–C4`) để tính toán động băng thông (`rate`), tỷ lệ mất gói (`loss`) và độ trễ (`delay`/`jitter`), cập nhật xuống giao diện mạng ảo của Containernet qua `tc netem`.
+4. **P7 & P8 (Layer 4 – SITL Cyber-Physical Twin & C2 IDPS Execution):** Chạy đồng bộ mô phỏng vật lý PX4 SITL/Gazebo, luồng điều khiển MAVSDK, nút tấn công MAVLink (`T0–T4`) và nút **In-Path C2 Defense Proxy** (thực thi phát hiện trực tuyến và kích hoạt ngăn chặn).
+5. **P9 & P10 (Multi-Modal Feature Engineering & IDPS Evaluation):** Giải mã đồng bộ PCAP + bản tin MAVLink L7 + PX4 ULog/Telemetry theo cửa sổ 1 giây, đánh giá mô hình phát hiện và hiệu quả ngăn chặn qua các kịch bản chia tách nghiêm ngặt theo chuyến bay/nhiệm vụ.
+
+### 4. Phác thảo Thuật toán P5: Bộ suy giảm liên kết động kết nối Vật lý – Mạng (Physics-Coupled Link Engine)
+
+#### 4.1. Mục tiêu và Giải pháp cho bài toán thiếu dữ liệu đo RTT/Loss của MAVLink
+
+Trong phiên bản cũ, `P5` bỏ qua hệ số suy hao $n=2.578$ của `P3` và chỉ gán 4 bộ hằng số tĩnh cho `tc netem`. Để khắc phục triệt để mà không vi phạm tính trung thực học thuật, `P5` áp dụng **Chuỗi chuyển đổi giải tích lớp vật lý sang lớp liên kết (Analytical PHY-to-MAC Performance Chain)** theo đúng công thức của [UAV-CAS (arXiv:2606.17845)](https://www.themoonlight.io/en/review/uav-cas-a-calibrated-digital-twin-dataset-for-intrusion-detection-in-uav-swarm-networks), đồng thời giữ chế độ tĩnh làm đối chứng kiểm tra độ nhạy.
+
+#### 4.2. Đầu vào và Tham số cấu hình của Thuật toán P5
+
+* **Đầu vào thời gian thực (mỗi chu kỳ $\Delta t = 1\text{ s}$):** Vector vị trí 3D của UAV $\mathbf{p}_{\text{UAV}}(t) = (x_t, y_t, z_t)$ từ PX4 SITL và vị trí trạm mặt đất $\mathbf{p}_{\text{GCS}} = (x_0, y_0, z_0)$.
+* **Tham số hiệu chỉnh từ `P3` (`layer1_dataset32_pathloss_fit.json`):** Hệ số suy hao đường truyền $n = 2.578$, độ lệch chuẩn pha đinh che khuất $\sigma_{\text{shadow}} = 3.5\text{ dB}$ (trung bình RMSE nội bộ giữa các chuyến bay Dataset-32), khoảng cách tương quan Gudmundson $d_{\text{corr}} = 50\text{ m}$.
+* **Tham số hệ thống thu phát C2 (khai báo tường minh trong cấu hình thực nghiệm):** Tần số tham chiếu $f_c = 3.4\text{ GHz}$, suy hao tham chiếu ở $d_0 = 1\text{ m}$ theo công thức không gian tự do $\text{FSPL}(1\text{ m}, 3.4\text{ GHz}) = 43.09\text{ dB}$, nền nhiễu nhiệt $N_0 = -95\text{ dBm}$, kích thước khung MAVLink trung bình $L_{\text{pkt}} = 64\text{ bytes}$ ($512\text{ bits}$), và bộ sinh số ngẫu nhiên cục bộ khởi tạo theo `run_seed`.
+
+#### 4.3. Quy trình 5 bước của Thuật toán P5 trong mỗi chu kỳ cập nhật $t$
+
+* **Bước 1 – Tính khoảng cách 3D và kiểm tra biên miền hiệu chỉnh (Domain Clamping):**
+* Tính khoảng cách nghiêng 3D: $d(t) = \max\left(\Vert{}\mathbf{p}_{\text{UAV}}(t) - \mathbf{p}_{\text{GCS}}\Vert{}_2, d_{\min}\right)$ với $d_{\min} = 1.0\text{ m}$.
+* Tính quãng đường UAV di chuyển từ bước trước: $\Delta d(t) = \Vert{}\mathbf{p}_{\text{UAV}}(t) - \mathbf{p}_{\text{UAV}}(t-1)\Vert{}_2$.
+* Ghi cờ `is_extrapolated = True` vào tệp log nếu $d(t) \notin [54.89, 444.60]\text{ m}$ (ngoài miền đo của [Dataset-32](https://aerpaw.org/dataset/dataset-32-aerpaw-air-to-ground-channel-sounding-and-path-loss-measurements-at-3-4-ghz-with-linear-and-zigzag-uav-trajectories/)).
+
+
+* **Bước 2 – Cập nhật pha đinh che khuất có tương quan không gian (Gudmundson Autoregressive Shadowing):**
+* Tính hệ số tự tương quan theo quãng đường di chuyển:
+
+$$\rho(t) = \exp\left(-\frac{\Delta d(t)}{d_{\text{corr}}}\right)$$
+
+
+* Cập nhật trạng thái pha đinh che khuất $X_\sigma(t)$ từ mẫu nhiễu chuẩn $\zeta_t \sim \mathcal{N}(0, 1)$:
+
+$$X_\sigma(t) = \rho(t) \cdot X_\sigma(t-1) + \sqrt{1 - \rho(t)^2} \cdot \sigma_{\text{shadow}} \cdot \zeta_t$$
+
+
+* Đảm bảo khi UAV bay chậm hoặc bay treo (hover), chất lượng kênh giữ tính liên tục mượt mà thay vì nhảy ngẫu nhiên độc lập giữa các giây.
+
+
+* **Bước 3 – Tính tổng suy hao đường truyền và SNR theo 4 kịch bản kênh (`C1`–`C4`):**
+* Tính suy hao cơ sở theo khoảng cách:
+
+$$PL_{\text{base}}(t) = 43.09 + 10 \cdot n \cdot \log_{10}(d(t)) + X_\sigma(t)$$
+
+
+* Cộng độ lệch suy hao môi trường $\Delta PL_{\text{env}}(t)$ và chọn công suất phát $P_{\text{TX}}$ tương ứng với 4 kịch bản kênh độc lập:
+* `C1_LOS` (Tầm nhìn thẳng, công suất cao): $P_{\text{TX}} = 24\text{ dBm}$, $\Delta PL_{\text{env}}(t) = 0\text{ dB}$.
+* `C2_Moderate` (Suy giảm trung bình / rìa vùng phủ): $P_{\text{TX}} = 18\text{ dBm}$, $\Delta PL_{\text{env}}(t) = 6\text{ dB}$.
+* `C3_NLOS` (Che khuất mạnh): $P_{\text{TX}} = 14\text{ dBm}$, $\Delta PL_{\text{env}}(t) = 14\text{ dB}$.
+* `C4_Dynamic` (Chuyển tiếp động $\text{LOS} \leftrightarrow \text{NLOS}$): Điều khiển bởi chuỗi Markov 2 trạng thái có xác suất chuyển $p_{\text{LOS}\to\text{NLOS}} = 0.08$, $p_{\text{NLOS}\to\text{LOS}} = 0.15$ mỗi giây (mô phỏng UAV bay qua các cụm vật cản theo tham chiếu [RL-AERPAW-DT Dataset-34](https://aerpaw.org/dataset/dataset-34-reinforcement-learning-with-3d-uav-network-digital-twin-rl-aerpaw-dt/)), cộng thêm $\Delta PL_{\text{env}}(t) \in \{0\text{ dB}, 14\text{ dB}\}$.
+
+
+* Suy ra $\text{SNR}_{\text{dB}}(t) = P_{\text{TX}} - \left(PL_{\text{base}}(t) + \Delta PL_{\text{env}}(t)\right) - N_0$ và đổi sang thang tuyến tính $\gamma(t) = 10^{\text{SNR}_{\text{dB}}(t)/10}$.
+
+
+* **Bước 4 – Ánh xạ giải tích sang Tốc độ truyền (`rate`), Tỷ lệ mất gói (`loss`) và Độ trễ (`delay`):**
+* Chọn bậc điều chế và mã hóa (MCS) thích nghi trong 7 mức IEEE 802.11a/g OFDM (từ BPSK $1/2$ tốc độ $R = 6\text{ Mbps}$ đến 64-QAM $3/4$ tốc độ $R = 54\text{ Mbps}$ như Bảng 1 của [UAV-CAS](https://arxiv.org/abs/2606.17845)) dựa trên ngưỡng $\text{SNR}_{\text{dB}}(t)$.
+* Tính xác suất lỗi bit $\text{BER}(t)$ bằng hàm $Q(\cdot)$ giải tích tương ứng với bậc điều chế $M$:
+* Với BPSK ($M=2$): $\text{BER}(t) = Q\left(\sqrt{2\gamma(t)}\right)$.
+* Với $M$-QAM ($M \in \{4, 16, 64\}$): $\text{BER}(t) = \frac{4}{\log_2 M}\left(1 - \frac{1}{\sqrt{M}}\right) Q\left(\sqrt{\frac{3\gamma(t)}{M-1}}\right)$.
+
+
+* Suy ra xác suất lỗi gói tin ở lớp liên kết (trước và sau giới hạn phát lại MAC $N_{\text{retry}} = 3$):
+
+$$\text{PER}_{\text{raw}}(t) = 1 - \left(1 - \text{BER}(t)\right)^{8 \cdot L_{\text{pkt}}}, \quad p_{\text{loss}}(t) = \left(\text{PER}_{\text{raw}}(t)\right)^{N_{\text{retry}} + 1}$$
+
+
+* Tính độ trễ cơ sở và độ biến thiên trễ (jitter) do phát lại khung MAC khi $\text{PER}_{\text{raw}}(t)$ tăng:
+
+$$\tau_{\text{delay}}(t) = \tau_{\text{prop}}(d(t)) + \tau_{\text{proc}} + \tau_{\text{backoff}} \cdot \frac{\text{PER}_{\text{raw}}(t)}{1 - \text{PER}_{\text{raw}}(t)}, \quad \tau_{\text{jitter}}(t) = 0.5 \cdot \left(\tau_{\text{delay}}(t) - \tau_{\text{proc}}\right)$$
+
+
+
+
+* **Bước 5 – Cơ chế cập nhật `tc netem` có ngưỡng trễ (Hysteresis Control) để tối ưu hiệu năng:**
+* Chỉ thực thi lệnh cập nhật xuống giao diện mạng Containernet khi thỏa mãn ít nhất một trong ba điều kiện: (1) Bậc tốc độ MCS thay đổi ($R(t) \neq R_{\text{applied}}$), (2) Độ lệch tỷ lệ mất gói $\vert{}p_{\text{loss}}(t) - p_{\text{applied}}\vert{} \ge 0.5\%$, hoặc (3) Độ lệch độ trễ $\vert{}\tau_{\text{delay}}(t) - \tau_{\text{applied}}\vert{} \ge 2.0\text{ ms}$.
+* Sử dụng lệnh `tc qdisc change dev <iface> root netem rate <R>Mbit delay <delay>ms <jitter>ms loss <loss>%` (khởi tạo sẵn `qdisc add` khi dựng mạng để trong lúc bay chỉ gọi `change`, không làm đứt kết nối socket UDP).
+* Ghi đồng bộ cả bộ giá trị mục tiêu $(d(t), \text{SNR}_{\text{dB}}(t), \text{MCS}(t), p_{\text{loss}}(t), \tau_{\text{delay}}(t))$ và bộ đếm thực tế từ `tc -s qdisc` vào tệp `channel_trace.csv`.
+
+
+
+### 5. Phác thảo Thuật toán P7: Kiến trúc Digital Twin Kênh C2, Thực thi Tấn công MAVLink và Cổng Ngăn chặn Chủ động (IDPS Proxy)
+
+#### 5.1. Sơ đồ Topology Mạng Containernet Tách Biệt (4 Nút, 2 Phân đoạn)
+
+Để tránh lưu lượng điều khiển của trạm mặt đất bị trộn lẫn với lưu lượng giám sát hoặc làm sai lệch điểm đo PCAP, `P7` tổ chức thành chuỗi định tuyến qua **Nút Proxy Phòng thủ C2 (In-Path C2 Proxy)** theo kiến trúc của [CACD (Lubal et al., RSSR 2026)](https://www.conference-publishing.com/toc/ASEWS26RSSR) và [Threat-Oriented Digital Twinning (Neubert et al., 2026)](https://arxiv.org/html/2604.25757v1):
+
+* **Nút 1 – `uav_node` (`10.0.1.10`):** Chạy [PX4 SITL v1.14](https://docs.px4.io/v1.14/en/sim_gazebo_gz/) + Gazebo `gz_x500` (headless), phát và nhận luồng MAVLink v2 qua cổng UDP.
+* **Liên kết vô tuyến giả lập (`link_a2g`):** Nối giữa `uav_node` và `c2_proxy_node`, chịu sự điều khiển động của thuật toán `P5` (`tc netem` hai chiều uplink/downlink).
+* **Nút 2 – `c2_proxy_node` (`10.0.1.1` / `10.0.2.1`):** Đóng vai trò cổng truyền thông trung gian (`mavlink-router` kết hợp bộ lọc Python thời gian thực), điểm bắt gói tin chuẩn (`c2_uav.pcapng`, `c2_gcs.pcapng`), và là nơi đặt mô-đun **Phát hiện & Ngăn chặn xâm nhập (IDPS Engine)**.
+* **Nút 3 – `gcs_node` (`10.0.2.10`):** Chạy bộ điều khiển nhiệm vụ tự hành [MAVSDK](https://github.com/mavlink/MAVSDK-docs/blob/main/en/cpp/guide/connections.md) (`gcs_mavsdk_mission.py`), nạp quỹ đạo bay từ `P4`/`P14` và thu thập telemetry.
+* **Nút 4 – `attacker_node` (`10.0.1.99`):** Kết nối vào phân đoạn mạng vô tuyến để thực thi các kịch bản tấn công tiêm nhiễm, phát lại, nghe lén/sửa đổi (MITM) hoặc gây ngập lụt kênh truyền.
+
+#### 5.2. Thuật toán thực thi 5 Kịch bản Lưu lượng & Tấn công C2 (`T0`–`T4`)
+
+Mỗi chuyến bay mô phỏng kéo dài $T_{\text{run}} = 120\text{ s}$, chia làm 3 pha: *Khởi động & Cất cánh* ($0–20\text{ s}$, luôn ở trạng thái sạch để ổn định quỹ đạo), *Pha Nhiệm vụ & Tác động Tấn công* ($20–95\text{ s}$, kích hoạt cửa sổ tấn công ngẫu nhiên có hạt giống `seed` kéo dài $30–45\text{ s}$), và *Pha Thu hồi / Hạ cánh* ($95–120\text{ s}$):
+
+| Mã kịch bản | Tên lớp lưu lượng / Tấn công | Tầng tác động | Thuật toán thực thi chi tiết trong `P7` | Dấu vết Ground-Truth ghi vào `attack_events.jsonl` |
+| --- | --- | --- | --- | --- |
+| **`T0_Benign`** | Lưu lượng C2 bình thường (Đối chứng) | Toàn ngăn xếp (L1–L7) | `gcs_node` nạp danh sách điểm bay (waypoints) kèm vận tốc mục tiêu Gauss–Markov từ `P14`, gửi lệnh `ARM`, `TAKEOFF` và duy trì luồng `HEARTBEAT` ($1\text{ Hz}$), `PING`, nhận `GLOBAL_POSITION_INT`, `ATTITUDE`, `SYS_STATUS` ($10\text{ Hz}$). | Ghi nhận toàn bộ cửa sổ thời gian là `label=0 (Benign)`, lưu trạng thái kênh `C1–C4`. |
+| **`T1_Replay`** | Tấn công Phát lại Bản tin C2 (Stale Command/Telemetry Replay) | Tầng Giao thức MAVLink (L7) | Trong khoảng $t \in [10, 25]\text{ s}$, `attacker_node` bắt các khung MAVLink hợp lệ (`SET_POSITION_TARGET_LOCAL_NED`, `MISSION_ITEM_INT`, hoặc `HEARTBEAT`) và lưu vào hàng đợi. Đến pha tấn công ($t \ge 35\text{ s}$), phát lại các khung cũ này với tốc độ $5–20\text{ pkt/s}$ nhằm làm lệch pha bộ đếm `seq` và kéo UAV về tọa độ cũ. | Thời điểm bắt đầu/kết thúc, danh sách `msgid` và số thứ tự `seq` gốc bị phát lại, độ lệch thời gian $\Delta \tau_{\{stale\}}$. |
+| **`T2_FDI`** | Tiêm lệnh Điều khiển Giả mạo (False Command & Parameter Injection) | Tầng Ứng dụng & Điều khiển bay (L7 / Control Loop) | Dựa trên [Benchellal et al. (2026)](https://arxiv.org/html/2606.22289v1) và [Kwon et al. (2018)](https://www.researchgate.net/publication/328135272_Defense_Techniques_Against_Cyber_Attacks_on_Unmanned_Aerial_Vehicles), `attacker_node` giả mạo định danh trạm mặt đất (`sysid=255, compid=190`) gửi các bản tin `COMMAND_LONG` hợp lệ về mặt cấu trúc CRC nhưng phá hoại nhiệm vụ: ép đổi chế độ bay (`MAV_CMD_DO_SET_MODE`), ép hạ cánh sớm (`MAV_CMD_NAV_LAND`), thay đổi vận tốc (`MAV_CMD_DO_CHANGE_SPEED`) hoặc ghi đè tham số an toàn (`PARAM_SET`). | Mã lệnh `msgid`, `command_id`, giá trị tham số giả mạo tiêm vào, phản hồi `COMMAND_ACK` của PX4 và độ lệch quỹ đạo phát sinh. |
+| **`T3_MITM`** | Can thiệp & Sửa đổi Trên đường truyền (In-Path Waypoint/Telemetry Tampering) | Tầng Mạng & Giao thức (L3/L7) | Kích hoạt mô-đun chặn bắt tại nút trung gian (theo kịch bản của [Highnam et al., 2016](https://www.google.com/search?q=https://www.researchgate.net/publication/308802965_An_Uncrewed_Aerial_Vehicle_Attack_Scenario_and_Trustworthy_Repair_Architecture)): khi bản tin vị trí hoặc lệnh điểm đến đi qua, cộng thêm độ lệch tọa độ $\Delta x, \Delta y \in [15, 40]\text{ m}$ hoặc làm trễ có chọn lọc bản tin `COMMAND_ACK` thêm $300\text{ ms}$, sau đó **tính lại mã kiểm tra `crc16` chuẩn MAVLink** để gói tin không bị loại bỏ ở tầng kiểm tra lỗi khung. | Tọa độ/trường dữ liệu trước và sau khi sửa đổi, độ trễ chèn thêm, và sai số lệch ngang (cross-track error) thực tế của UAV. |
+| **`T4_DoS`** | Ngập lụt Giao vận & Giao thức C2 (Hybrid Transport & MAVLink Storm) | Tầng Giao vận & Giao thức (L4 / L7) | Kết hợp hai phương thức ngập lụt: (T4a) Bắn luồng gói UDP tốc độ cao (`hping3` / raw socket) làm nghẽn băng thông `tc netem`; (T4b) Bắn ngập lụt các bản tin yêu cầu xử lý nặng của MAVLink như `PARAM_REQUEST_LIST`, `MISSION_REQUEST_LIST` và `PING` (theo [CACD RSSR 2026](https://www.conference-publishing.com/toc/ASEWS26RSSR)) làm quá tải hàng đợi xử lý của autopilot. | Tốc độ bắn gói (pps/bps), tỷ lệ rớt gói `HEARTBEAT`, độ tăng RTT và số lượng gói bị rớt tại hàng đợi `qdisc`. |
+
+#### 5.3. Thuật toán Ngăn chặn Chủ động (Active IPS & Runtime Safety Quarantine) tại `c2_proxy_node`
+
+Để đáp ứng trọn vẹn vế **"và ngăn chặn tấn công"** của đề tài, nút `c2_proxy_node` vận hành một vòng lặp kiểm soát 3 tầng lấy cảm hứng từ [CACD (Lubal et al., RSSR 2026)](https://www.conference-publishing.com/toc/ASEWS26RSSR) và [Threat-Oriented Digital Twinning (Neubert et al., 2026)](https://arxiv.org/html/2604.25757v1):
+
+1. **Tầng 1 – Bộ lọc tốc độ theo ngữ nghĩa giao thức (Protocol-Aware Token Bucket Rate Guard):**
+* Duy trì bộ đếm tốc độ riêng cho từng nhóm `msgid` trên mỗi địa chỉ nguồn `(src_ip, src_port, sysid)`.
+* Nếu tần suất `HEARTBEAT` $> 5\text{ Hz}$, `PING` $> 10\text{ Hz}$, hoặc `PARAM_REQUEST_LIST` $> 2\text{ Hz}$ từ một nguồn chưa xác thực, tự động **cắt bỏ (drop) các gói vượt ngưỡng** ngay tại bộ đệm proxy trước khi chúng đi vào liên kết vô tuyến `link_a2g`, bảo vệ băng thông cho luồng điều khiển chính.
+
+
+2. **Tầng 2 – Kiểm tra tính nhất quán trạng thái phiên & Cách ly an toàn (Stateful Command Guard & Safety Quarantine):**
+* Duy trì bản sao trạng thái nhiệm vụ hiện hành của UAV: $\mathcal{S}_{\text{UAV}} = (\text{flight\_mode}, \text{is\_in\_air}, \text{mission\_seq}, \mathbf{p}_{\text{UAV}}, v_{\text{UAV}}, \text{last\_valid\_seq})$.
+* Kiểm tra mọi lệnh điều khiển nhạy cảm (`COMMAND_LONG`, `SET_MODE`, `MISSION_ITEM_INT`, `PARAM_SET`):
+* *Phát hiện Replay:* Nếu số thứ tự gói `seq` bị lặp lại hoặc lùi bất thường kèm dấu thời gian `time_boot_ms` cũ hơn trạng thái hiện tại $\rightarrow$ đánh dấu `Stale_Replay` và loại bỏ gói tin.
+* *Phát hiện FDI / Lệnh nguy hiểm:* Nếu nhận lệnh `MAV_CMD_NAV_LAND` hoặc `MAV_CMD_COMPONENT_ARM_DISARM (Disarm)` khi UAV đang bay ở độ cao $> 10\text{ m}$ và chưa hoàn thành tuyến điểm bay (`mission_seq < mission_total`) mà không có cờ khẩn cấp từ GCS chuẩn $\rightarrow$ chuyển nguồn gửi vào trạng thái **Cách ly an toàn (Safety Quarantine)**.
+* *Đánh lừa hai chiều (Dual-View Deception tùy chọn theo [CACD](https://www.conference-publishing.com/toc/ASEWS26RSSR)):* Luồng bị cách ly vẫn nhận được gói `COMMAND_ACK` giả và một luồng telemetry tổng hợp giới hạn để kẻ tấn công tưởng lệnh đã thực thi, trong khi UAV thật tiếp tục bay theo lệnh của `gcs_node` hợp lệ.
+
+
+
+
+3. **Tầng 3 – Chuyển trạng thái dự phòng an toàn tự trị (`HOLD_SAFE` / Failsafe Escalation):**
+* Khi mô hình học máy cửa sổ 1 giây phát hiện tấn công cường độ cao hoặc khi liên kết C2 mất gói `HEARTBEAT` hợp lệ liên tục quá ngưỡng $T_{\text{timeout}} = 3.0\text{ s}$ (do `T4_DoS` hoặc `T3_MITM` cắt đứt đường truyền), `c2_proxy_node` (hoặc logic tự trị trên UAV) kích hoạt ngay lệnh chuyển sang chế độ **`HOLD_SAFE`** (PX4 `AUTO.LOITER` giữ vị trí an toàn trên không hoặc `AUTO.RTL` quay về điểm xuất phát).
+* Toàn bộ quyết định của IPS (`action_taken`: `ALLOW`, `RATE_LIMIT`, `QUARANTINE_DROP`, `TRIGGER_HOLD_SAFE`) và độ trễ phản ứng ($\text{mitigation\_latency\_ms}$) đều được ghi vào tệp dữ liệu đầu ra để phục vụ huấn luyện và đánh giá mô hình phòng thủ.
+
+
+
+### 6. Thiết kế Ma trận Thực nghiệm Tối ưu và Bộ Đặc trưng Đa phương thức (P8, P9, P10)
+
+#### 6.1. Ma trận Chuyến bay Mô phỏng (180 Runs Cân bằng – Khả thi trên 1 Máy chủ Linux)
+
+Thay vì nhân bùng nổ lên 1.200 runs gây quá tải thời gian chạy SITL hoặc thu hẹp chỉ còn 2 lớp lưu lượng như bản cũ, ma trận chuẩn của V2.0 gồm **180 runs** cho chiến dịch chính (tương đương $\sim 6\text{ giờ}$ chạy tự động với $120\text{ s/run}$):
+
+* **3 tuyến nhiệm vụ thực tế (`F1, F4, F7`)** lấy từ 3 nhóm nguồn train khác nhau của [AFAR](https://www.researchgate.net/publication/396190658_Collection_UAV-Based_RSS_Measurements_From_the_AFAR_Challenge_in_Digital_Twin_and_Real-World_Environments) (đã khớp vận tốc Gauss–Markov từ `P14`).
+* **4 kịch bản kênh truyền động (`C1_LOS`, `C2_Moderate`, `C3_NLOS`, `C4_Dynamic`)** được điều khiển bởi chuỗi giải tích `P5` dựa trên hệ số $n=2.578$ của [Dataset-32](https://aerpaw.org/dataset/dataset-32-aerpaw-air-to-ground-channel-sounding-and-path-loss-measurements-at-3-4-ghz-with-linear-and-zigzag-uav-trajectories/).
+* **5 lớp lưu lượng (`T0_Benign`, `T1_Replay`, `T2_FDI`, `T3_MITM`, `T4_DoS`)** xuất hiện đồng đều trên cả 4 kịch bản kênh để triệt tiêu hoàn toàn hiện tượng mô hình học đường tắt (*shortcut learning*).
+* **3 lần lặp độc lập (`repetitions = 3`, với `seed` khác nhau)** cho mỗi tổ hợp: $3 \times 4 \times 5 \times 3 = 180\text{ runs}$ (tạo ra $\sim 21.600$ cửa sổ dữ liệu 1 giây có nhãn đầy đủ).
+* **Chiến dịch kiểm định độ bền quỹ đạo riêng (Holdout Generalization):** Chạy thêm $2\text{ tuyến holdout AFAR} \times 2\text{ kênh (C1, C4)} \times 5\text{ lớp lưu lượng} \times 2\text{ lần lặp} = 40\text{ runs}$ hoàn toàn không tham gia huấn luyện để kiểm tra khả năng tổng quát hóa sang quỹ đạo bay mới.
+
+#### 6.2. Ba nhóm Đặc trưng Hợp nhất trong Cửa sổ 1 giây (`P9_dataset_schema.py`)
+
+Mỗi cửa sổ thời gian 1 giây trong `P9` kết hợp 3 nhóm đặc trưng (khoảng 28–32 trường, tương đồng quy mô 27 đặc trưng của [CACD RSSR 2026](https://www.conference-publishing.com/toc/ASEWS26RSSR) và phương pháp hợp nhất của [Hassler et al., 2024](https://github.com/uamughal/UAVs-Dataset-Under-Normal-and-Cyberattacks)):
+
+1. **Nhóm Đặc trưng Luồng mạng (Network Transport Features - 10 trường):** Tốc độ gói tin (pps), tốc độ byte (bps) chiều lên/xuống, trung bình và độ lệch chuẩn khoảng cách thời gian giữa các gói (IAT mean/std), trung bình/độ lệch chuẩn kích thước gói, tỷ lệ gói UDP, số luồng hoạt động.
+2. **Nhóm Đặc trưng Ngữ nghĩa Giao thức MAVLink (MAVLink L7 Semantic Features - 12 trường):** Tổng số khung MAVLink hợp lệ, số lỗi kiểm tra CRC/malformed, entropy của phân phối mã bản tin `msgid` ([HCRL MAVLink Dataset](https://ocslab.hksecurity.net/Datasets/mavlink-message-id-sequence-dataset)), tần suất bản tin `HEARTBEAT` / `PING` / `COMMAND_LONG` / `MISSION_ITEM_INT` / `PARAM_REQUEST_LIST`, số lần nhảy cóc hoặc trùng lặp số thứ tự gói (`seq_gap_count`, `seq_dup_count`), tỷ lệ lệnh không có `COMMAND_ACK`, số lượng `sysid` khác nhau xuất hiện trong cửa sổ.
+3. **Nhóm Đặc trưng Vật lý & Động lực học bay (Physical Flight Telemetry Features - 8 trường):** Vận tốc mặt đất ($v_{xy}$), vận tốc thẳng đứng ($v_z$), tốc độ góc quay hướng bay (yaw rate), góc nghiêng (roll/pitch), sai số bám quỹ đạo ngang (cross-track error so với đường bay mục tiêu), sai số độ cao, và độ trễ ước lượng liên kết.
+
+#### 6.3. Thiết kế Thực nghiệm Đánh giá IDPS (`P10_ids.py`)
+
+* **Phân chia tập dữ liệu không rò rỉ (Group-Preserving Splits):** Mọi phép chia Train/Validation/Test đều thực hiện theo đơn vị `run_id` và `source_group_id`, tuyệt đối không trộn các cửa sổ 1 giây của cùng một chuyến bay vào cả tập huấn luyện và tập kiểm tra.
+* **4 bài kiểm tra trọng tâm:**
+* *E1 (Phát hiện nhị phân & Đa lớp 5 lớp):* So sánh hiệu năng (Macro-F1, Per-class F1, PR-AUC, AUROC) giữa các mô hình nhẹ phù hợp nhúng trên UAV (Random Forest, LightGBM, MLP, 1D-CNN, LSTM).
+* *E2 (Nghiên cứu Ablation 4 chế độ):* So sánh (1) *Chỉ dùng đặc trưng mạng (Network-only)*, (2) *Chỉ dùng ngữ nghĩa MAVLink (MAVLink-only)*, (3) *Chỉ dùng cảm biến bay (Telemetry-only)*, và (4) *Hợp nhất đa phương thức (Cyber-Physical + MAVLink Fusion)* để chứng minh tính tất yếu của việc giải mã MAVLink và kết hợp trạng thái vật lý khi bắt các cuộc tấn công ngầm (`T1_Replay`, `T2_FDI`, `T3_MITM`).
+* *E3 (Kiểm tra độ bền trước suy giảm kênh - Channel Shortcut Audit):* Huấn luyện trên kênh sạch/trung bình (`C1, C2`) và kiểm tra trên kênh suy giảm mạnh/biến thiên (`C3, C4`) để đo tỷ lệ báo động giả (False Positive Rate) khi kênh truyền xấu đi tự nhiên.
+* *E4 (Đánh giá hiệu quả Ngăn chặn IPS):* Đo tỷ lệ chặn đúng lệnh độc hại (Command Blocking Rate), độ trễ kích hoạt ngăn chặn ($\text{p50, p95 latency}$), và tỷ lệ hoàn thành nhiệm vụ an toàn (Mission Survival / Safe Hold Rate) khi bật so với khi tắt `c2_proxy_node`.
+
+
+
+### 7. Lộ trình 5 Cổng Kiểm duyệt (Execution Gates) để Triển khai Ngay
+
+1. **Gate 1 – Khóa hiệu chỉnh Layer 1 & Layer 2 (Chạy ngay trên dữ liệu sẵn có):** Cài đặt đủ `scipy` và `openpyxl`, chạy nhánh `A2G 3.6 GHz` ([Li et al., 2025](https://pubmed.ncbi.nlm.nih.gov/41114292/)) để hoàn tất thẻ mô hình Layer 1 bên cạnh [Dataset-32](https://aerpaw.org/dataset/dataset-32-aerpaw-air-to-ground-channel-sounding-and-path-loss-measurements-at-3-4-ghz-with-linear-and-zigzag-uav-trajectories/); cập nhật `P14` sang kiểm định chéo **5-fold LOGO-CV** trên 5 nhóm nguồn [AFAR](https://www.researchgate.net/publication/396190658_Collection_UAV-Based_RSS_Measurements_From_the_AFAR_Challenge_in_Digital_Twin_and_Real-World_Environments) để lấy khoảng tin cậy của JSD.
+2. **Gate 2 – Nâng cấp `P5` sang Chuỗi giải tích PHY-to-MAC:** Tích hợp công thức Gudmundson shadowing + hàm $Q(\cdot)$ 7 mức MCS 802.11a/g (như [UAV-CAS](https://arxiv.org/abs/2606.17845)) nhận hệ số $n=2.578$ từ `P3` và khoảng cách $d(t)$ từ SITL, kèm cơ chế cập nhật `tc netem` có ngưỡng trễ Hysteresis $1\text{ Hz}$.
+3. **Gate 3 – Tích hợp kịch bản tấn công MAVLink (`T1–T4`) và `c2_proxy_node` vào `P7`:** Viết mô-đun `pymavlink` thực thi Replay, FDI, MITM, Hybrid DoS và cổng kiểm soát 3 tầng (Rate Guard, Stateful Command Quarantine, `HOLD_SAFE`). Chạy thử nghiệm 5 runs pilot (1 run cho mỗi lớp `T0–T4`) trên máy chủ Linux để xác nhận PCAP, ULog và bảng giải mã MAVLink khớp thời gian.
+4. **Gate 4 – Chạy chiến dịch 180 Runs chính + 40 Runs Holdout (`P8`):** Thu thập toàn bộ dữ liệu thô, chạy `P9` để trích xuất 3 nhóm đặc trưng (Network + MAVLink Semantic + Physical Telemetry) và kiểm tra tính toàn vẹn của nhãn.
+5. **Gate 5 – Đánh giá mô hình IDPS (`P10`) và Xuất bản thảo bài báo:** Thực hiện 4 bài đánh giá `E1–E4`, tổng hợp bảng kết quả hiệu chuẩn 4 lớp và đóng gói bộ dữ liệu công khai.

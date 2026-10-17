@@ -1,0 +1,269 @@
+TECHNICAL SURVEY — PIPELINE DIGITAL TWIN UAV C2 HIỆN TẠI
+Phiên bản: 07-10-2026
+Mục đích: tài liệu nền để báo cáo đề tài và chuẩn bị bản thảo paper.
+
+======================================================================
+1. TÓM TẮT
+======================================================================
+
+Đề tài xây dựng một UAV–GCS software emulator/digital-twin prototype chạy mô phỏng/emulation, lấy PX4 SITL và Gazebo làm môi trường bay; MAVLink/MAVSDK làm luồng điều khiển; Containernet/Linux và tc/netem làm môi trường mạng; PCAP, telemetry và event logs làm dữ liệu quan sát. Không yêu cầu nhóm tự bay UAV thật. Dataset công khai dùng làm reference theo đúng metric/domain, không mặc định là calibration cho toàn simulator.
+
+Phạm vi hiện tại chưa phải bản sao RF/PHY hoặc end-to-end C2 đã được hiệu chuẩn. Dataset-32 cung cấp path-loss trend 3.4 GHz trong miền đo; A2G 3.6 GHz có một nhánh riêng; Ericsson 5G và Pawprints 4G cung cấp KPI cellular riêng; AFAR/AADM cung cấp mobility/link references. Tuy nhiên, qdisc của PX4/MAVLink twin vẫn nhận stress profiles cố định. Code chưa dùng các fit trên để dự đoán RTT/loss/jitter/goodput C2.
+
+Do đó cách mô tả chính xác trước khi hoàn tất các gate là:
+“Simulation-only UAV–GCS C2 software emulator with domain-specific empirical reference fits, recorded-trajectory replay, and declared network stress conditions; target C2 impairments and end-to-end fidelity are not calibrated.”
+
+Không nâng claim thành “measurement-calibrated twin” cho tới khi các tham số fit được dùng để điều chỉnh model và twin được đánh giá trên holdout độc lập. Không khẳng định “RF-accurate physical twin”, “fully calibrated MAVLink link” hoặc tương đương hoàn toàn với UAV-CAS.
+
+======================================================================
+2. NGUYÊN LÝ: DIGITAL TWIN, CALIBRATION VÀ VALIDATION
+======================================================================
+
+Digital twin trong phạm vi này là mô hình phần mềm chạy động, ghép chuyển động mô phỏng với traffic/control plane và trạng thái mạng. PX4 SITL cung cấp flight dynamics và telemetry; MAVSDK/GCS điều khiển mission; MAVLink đi qua topology mạng được emulation. Twin có thể vận hành hoàn toàn mô phỏng nhưng vẫn dùng số liệu đo thực công khai làm nguồn tham chiếu. “Không bay thật” không đồng nghĩa “không dùng dữ liệu thực”: Dataset-32, A2G 3.6 GHz, AFAR, AADM và Ericsson 5G là các bộ dữ liệu thực nghiệm độc lập.
+
+Fitting là ước lượng tham số từ tập fit; calibration là dùng tham số đó để điều chỉnh simulator; validation là đánh giá simulator đã điều chỉnh trên nhóm không tham gia fit/tuning. Chia ngẫu nhiên từng dòng trong một flight thường không đủ vì mẫu thời gian phụ thuộc; split theo flight, trajectory, orientation, source group hoặc scenario. Số hàng lớn không tăng số đơn vị độc lập nếu chúng đến từ một vài flight.
+
+Một bộ dataset chỉ hiệu chuẩn được đại lượng thực sự được đo và có định nghĩa/đơn vị đủ rõ. Ví dụ: path loss không tự cung cấp packet loss; RSRP/SINR không tự cho RTT; application throughput không tự đại diện cho MAVLink goodput. Khác radio, frequency, antenna, traffic, endpoint hoặc môi trường thì cần coi là domain riêng, không chuyển hệ số nếu chưa chứng minh tương đương.
+
+UAV-CAS được dùng làm tham chiếu phương pháp: preprint mô tả Containernet-based digital twin được calibration theo AERPAW với bốn lớp gồm altitude-dependent path loss, mission-specific mobility, link-level performance chain và end-to-end trace fidelity. Công trình báo dataset và simulator của họ, cùng calibration data để tái lập. Đề tài này mượn cách chia layer và cách dùng reference data; mục tiêu ứng dụng khác (single UAV–GCS C2/MAVLink thay cho UAV swarm/network IDS), và bằng chứng/coverage hiện có không đồng nhất với UAV-CAS. [1]
+
+======================================================================
+3. KIẾN TRÚC VÀ LUỒNG PIPELINE HIỆN TẠI
+======================================================================
+
+Reference datasets
+  |-- Dataset-32 3.4 GHz --------------------> P2/P3 path-loss trend
+  |-- A2G CIR/PL 3.6 GHz --------------------> P2/P3 independent PL trend
+  |-- Ericsson 5G NSA ------------------------> P2/P3 LTE/NR KPI relation
+  |-- Pawprints 4G ---------------------------> P2/P3 LTE RSRP/location check
+  |-- AADM -----------------------------------> source processor + P6 KPI holdout
+  |-- AFAR GPS traces ------------------------> P4 mobility replay traces
+                                                    |
+PX4 SITL + Gazebo <--> MAVLink/MAVSDK GCS <--> Containernet/TCLink
+                                                    |
+                                           P5 qdisc stress profile
+                                                    |
+                        P7 run artifacts: PCAP + SITL telemetry + events
+                                      |             |
+                                     P9 views      P10 IDS
+
+run_all.sh gọi Dataset-32 P2/P3; xử lý A2G 3.6 GHz, Ericsson 5G và Pawprints 4G khi tìm thấy các thư mục. `LAYER1_ONLY=1` chạy reference processing và AFAR trace preparation rồi dừng trước SITL. Full script xử lý AADM/P6/P12, AFAR/P4, campaign P8/P7, rồi P9/P10. P8/P7 cần Linux, Docker, Containernet, quyền root/qdisc và image SITL phù hợp; chạy trên Windows native không được hỗ trợ.
+
+P2/P3 tạo fit/metrics riêng cho từng nguồn, nhưng integration không đưa chúng vào qdisc. P5 kiểm tra artifact Dataset-32 và reference carrier 3.4 GHz; impairment trả tuple cố định C1–C4 (delay, loss, rate) và không tính theo `n`. Do đó đây là fit/reference evidence tách rời, chưa active-coupled thành dự đoán mạng C2.
+
+======================================================================
+4. CÁC DATASET, CÁCH DÙNG VÀ GIỚI HẠN
+======================================================================
+
+4.1 AERPAW Dataset-32 — propagation core 3.4 GHz
+Nguồn: Gürses và Sichitiu, “AERPAW air-to-ground channel sounding and path loss measurement with a UAV at 3.4GHz”, Dryad DOI 10.5061/dryad.2ngf1vj4r. Bộ dữ liệu có bốn flight (hai tuyến linear lặp, hai zigzag lặp), dữ liệu CSV đã xử lý với `path_loss_db`, `uav2ground_dist`, vị trí/độ cao và SigMF metadata tại 3.4 GHz. [2]
+
+P2 `P2_prepare_dataset32.py` xác thực CSV/metadata và tạo bảng chuẩn, manifest và checksum. P3 `P3_layer1_dataset32.py` ước lượng:
+
+    PL_ij = a_i + beta * log10(d_ij) + error_ij
+
+trong đó i là flight; intercept flight-specific được loại/ước lượng riêng và tổng trọng số mỗi flight được cân bằng. Path-loss exponent tương ứng `n = beta/10`. Leave-one-flight-out test được demean trong flight giữ lại, nên kiểm tra xu hướng theo khoảng cách; không đánh giá absolute PL prediction cho flight mới.
+
+Đã có kết quả xử lý trước đó trên workspace: 136,987 dòng, 4 flight, khoảng cách xấp xỉ 54.89–444.60 m, UAV altitude xấp xỉ 54.84–61.09 m AGL, slope khoảng 25.78 dB/decade (`n≈2.578`). LOFO within-flight trend RMSE từng flight khoảng 2.88–4.13 dB. Bốn flight là bốn nhóm độc lập, không phải 136,987 replicate độc lập. Đây là path-loss trend fit từ trường source-provided; fit chưa điều khiển simulator và metadata chưa chứng minh absolute TX/RX metrology traceable.
+
+Vai trò: path-loss trend fit và grouped holdout trong domain 3.4 GHz. Giới hạn: một carrier/site và độ cao hẹp; model chưa điều khiển propagation trong SITL, không suy qdisc delay/loss/goodput.
+
+4.2 Measured A2G Channel Dataset (CIR) in Multiple Scenarios — A2G 3.6 GHz
+Nguồn: Li et al. (2025), Data in Brief 63, 112086, DOI 10.1016/j.dib.2025.112086; data Mendeley DOI 10.17632/8p6r8ft4fz.2. Ba môi trường sports field/farmland/over-water, độ cao 10 và 15 m, carrier 3.6 GHz, có CIR snapshots và appendix đã xử lý PL. Bài báo mô tả dữ liệu CIR có GPS/time và các đường PL/PDP/RMS delay spread. [3]
+
+P2 `P2_prepare_a2g36.py` đọc các file Appendix `PL_data/*.mat` (README nguồn mô tả array có distance và PL thành hai hàng), xuất bảng theo scenario × altitude và manifest/hash. Workbook CIR được tóm tắt riêng thành median/peak/min của các bin dB; đây là descriptor, không bị gọi absolute received power. P3 `P3_layer1_a2g36.py` fit slope 3.6 GHz riêng, dùng within-group fixed effects và leave-one-scenario-altitude-group-out, demean test theo group; chỉ kiểm tra xu hướng.
+
+Chưa chạy nhánh MAT trong runtime hiện tại vì interpreter được cung cấp thiếu SciPy. SciPy và openpyxl nằm trong `requirements.txt`; sau khi cài dependencies, phải chạy nhánh này và xem model card trước khi báo kết quả. Sáu file không phải sáu campaign độc lập; chỉ có ba scenario và hai altitude. Không pool với Dataset-32 (3.4 GHz, flight/site khác); không khẳng định hệ số altitude tổng quát từ 10/15 m.
+
+4.3 Ericsson 5G NSA AERPAW — network KPI reference
+Nguồn: Asokan et al. (2025), “Ericsson 5G NSA network RF and throughput measurements on AERPAW network”, Dryad DOI 10.5061/dryad.wh70rxx06. Dataset ghi LTE/NR RSRP/SINR, NR CQI/MCS, cell ID, throughput Mbps, vị trí/thời gian; zigzag UAV campaign, yaw45/yaw315, 30 m theo README và Quectel modem trong NSA network. [4]
+
+P2 `P2_prepare_aerpaw5g.py` chuẩn hóa LTE/NR riêng. RSRP row là timestamp anchor; SINR/CQI/MCS/cell ID/throughput ghép timestamp gần nhất trong 2 giây và bảng giữ sai số match. Khoảng cách horizontal tới LW1 được tính từ anchor trong MATLAB script nguồn; altitude giữ nguyên source field, không tự suy AGL. P3 `P3_evaluate_aerpaw5g.py` báo summary per RAT/orientation, demeaned RSRP-distance holdout giữa hai yaw groups và tuyến tính NR throughput-vs-SINR train/test theo orientation.
+
+Đã chạy P2/P3 trên workspace: 11,465 rows (5,847 LTE; 5,618 NR), NR throughput match đủ 5,618 rows. RSRP heldout RMSE theo xu hướng demean: LTE khoảng 3.64–3.87 dB; NR 4.60–5.55 dB. Throughput-vs-SINR heldout RMSE khoảng 18.80–21.26 Mbps. Các dòng là thời gian liên tiếp trong hai hướng bay của một campaign; chúng phụ thuộc theo thời gian, nên metrics là mô tả/holdout trong campaign, không là CI theo row độc lập.
+
+Vai trò: KPI branch tham chiếu 5G LTE/NR. Không phải MAVLink C2, không có chứng cứ RTT/loss/jitter trong các trường pipeline dùng; không transfer throughput-vs-SINR sang qdisc của radio khác.
+
+4.4 Pawprints 4G — cellular KPI reference
+Nguồn: Singh et al. (2025), “AERPAW: Aerial Android-based 4G measurements for semi circle trajectories around a private base station”, Dryad DOI 10.5061/dryad.gmsbcc30x. Bản tải trong project có 2,021 dòng tổng và 1,217 connected rows; bao gồm RSRP/RSRQ/RSSI, PCI, EARFCN, trạng thái kết nối, timing advance và GPS. Pipeline chuẩn hóa timestamp, giữ nguyên altitude source, tính khoảng cách ngang tới base station theo tọa độ README. [8]
+
+`P2_prepare_pawprints4g.py` tạo `data/processed/pawprints4g/pawprints4g_kpis.csv` và manifest/hash. `P3_evaluate_pawprints4g.py` fit RSRP theo log-distance và đánh giá contiguous-time-block holdout trên connected rows. Kết quả là exploratory within-flight check: chỉ một semi-circle flight, không có flight-level independent holdout. Dataset không có MAVLink, throughput/application goodput, packet loss, RTT hoặc jitter; không dùng để cấu hình qdisc. Artifact hiện sinh: `data/model_fits/pawprints4g_rsrp_holdout.json`.
+
+4.5 AFAR — mobility trace và cơ hội DT/testbed comparison
+Nguồn: “AERPAW Find-a-Rover (AFAR) Challenge in December 2023”, Dryad DOI 10.5061/dryad.18931zd4g. Dryad mô tả development data và testbed data; testbed có power/quality/GPS/time logs. Các tuyến được tạo/phát triển bởi teams trong AERPAW digital twin rồi thực hiện trong testbed; dataset còn kèm MATLAB hỗ trợ so sánh real với DT. [5]
+
+P4 đọc và giữ toàn bộ 15 GPS `log.csv` testbed hợp lệ tại local archive, giảm mẫu tối đa 50 điểm, lưu source hash, location và source group. Split holdout do pipeline định nghĩa theo top-level numeric source-directory ID; đây không phải khẳng định ID đó là campaign. P8 mặc định lấy F1/F4/F7 từ ba source groups train và kiểm soát partition. P14 fit trên train: scalar-speed Gauss–Markov (alpha, mean, innovation sigma), turn-rate P95 và median altitude profile theo normalized progress; P8/P7 đưa tốc độ có seed, giảm tốc ở góc gắt và profile độ cao train vào lệnh waypoint. Holdout không tham gia fit; P14 dùng nó để chấm JSD phân phối. P13 chấm sai lệch ngang tới polyline và sai số độ cao trên telemetry SITL hợp lệ; P15 có code đánh giá phân phối 1 Hz của tốc độ, tốc độ đứng, hướng/course, turn-rate, gia tốc ngang và lag-1 speed autocorrelation, với ngưỡng pilot suy từ trace train cùng source group. P13/P15 chưa được chạy trên campaign SITL holdout. P15 chưa thể xác nhận attitude, body-rate hoặc gia tốc 3 trục vì AFAR không có reference đồng bộ. Offset độ cao mission 15 m được ghi rõ; timestamp AFAR không được xem là lịch bay PX4. Đây là fit mobility một phần và quy trình đánh giá SITL, không phải xác nhận đầy đủ flight dynamics hay swarm topology.
+
+4.6 AADM — independent mobility/link KPI reference
+Nguồn: Hossen et al., AERPAW Autonomous Data Mule multi-modal dataset, Dryad DOI 10.5061/dryad.7d7wm3898. Tập này có dữ liệu AERPAW digital twin và real-world/testbed, flight/telemetry và link observations; bộ xử lý trong repo trích SNR và controller report rate khi chúng có mặt. [6]
+
+`0-step1_process_aadm.py` tạo riêng `aadm_development.csv` và `aadm_testbed.csv`; P6 đánh giá SNR/rate theo flight holdout. P12 so sánh phân phối development-DT với testbed bằng flight-level medians/Wasserstein theo BS, không giả định pairing one-to-one. Đây là external AADM domain comparison, không validation của PX4/MAVLink twin; cần verify stage, BS, timestamp và rate semantics trước khi report.
+
+4.7 Tài nguyên không dùng hiện tại
+Maeng và Dataset-3 không tải được nên không phải dependency. AirScope cũng không tải được và được bỏ khỏi pipeline. Dataset-34 nếu dùng chỉ làm simulated geometry/LOS-NLOS comparator, không phải independent physical ground truth. Các dataset IDS phổ thông có thể dùng để so baseline classifier, không hiệu chuẩn propagation/link.
+
+======================================================================
+5. LAYER MODEL VÀ CÁCH ĐÁNH GIÁ
+======================================================================
+
+Layer 1 — Domain-specific path-loss trend fitting and validation
+- Dựng path-loss models theo dataset/carrier riêng. Dataset-32 fit beta/path-loss exponent trong miền 3.4 GHz. A2G 3.6 GHz fit riêng theo các scenario-altitude groups.
+- Dùng group holdout (flight, scenario-altitude group), report MAE, RMSE, bias, per-group slope/residual và miền support. Ưu tiên bootstrap/group uncertainty theo flight/group, không resample rows như independent captures.
+- So với baseline vật lý chỉ khi có định nghĩa input/geometry/reference plane nhất quán; ghi source-provided, derived hay measured fields. Không tạo received dBm từ PL nếu thiếu TX power, antenna gains, cable/system losses, receiver calibration và uncertainty.
+
+Layer 2 — Mobility/mission
+- Hiện: AFAR testbed trace library được replay; P4 chia holdout theo source-directory group. AADM có development/testbed trajectory để mở rộng mobility library.
+- P14 fit train-only: ước lượng alpha/mean/innovation sigma Gauss–Markov bằng least-squares lag-1 riêng từng trace rồi lấy median equal-trace; JSD speed train là diagnostic, không dùng chọn alpha. Fit thêm turn-rate P95 và median altitude profile; P7 chuyển các profile tốc độ/độ cao và giới hạn tốc độ tại góc vào waypoint PX4. P14 báo JSD train–holdout cho speed, turn rate, vertical rate, altitude và spatial occupancy.
+- P13 đo cross-track/altitude trên SITL holdout; P15 tạo pilot gates riêng cho horizontal speed, vertical rate, course turn-rate, course-over-ground heading, horizontal acceleration và lag-1 speed autocorrelation. Ngưỡng P15 là P95 khoảng cách giữa các trace train cùng source group, chỉ đại diện biến thiên trong archive. P13/P15 chưa chạy campaign holdout nên hiện chưa có kết quả các gate này; route tracking cần ngưỡng kỹ thuật định trước để kết luận pass/fail. Chưa xác nhận UAV thật, attitude/body-rate/3-axis acceleration, swarm topology hoặc toàn bộ dynamics.
+
+Layer 3 — External link-KPI reference and C2 stress emulation
+- External evidence: 5G NSA, Pawprints 4G, AADM SNR/link quality/rate. Mỗi technology/dataset giữ riêng và có giới hạn split riêng.
+- Current twin implementation: Containernet `TCLink`/qdisc profiles C1–C4; code trả delay/loss/rate constants. Live SITL telemetry cập nhật audit/distance, nhưng `n` Dataset-32 không thay đổi qdisc values. Vì vậy qdisc là parameterized stress-test channel, không phải measured RF-to-network chain.
+- Nếu muốn viết Layer 3 calibrated cho system-specific emulator mà không có chuyến bay nhóm, cần target dataset thật sự có paired quality→network outcomes phù hợp với emulator. Nếu chỉ có 5G throughput thì có thể hiệu chỉnh một 5G throughput mapping riêng, nhưng không thay thành C2 loss/delay/jitter. Cần gọi rõ “5G reference model” chứ không “MAVLink C2 model”.
+
+Layer 4 — End-to-end fidelity and data generation
+- P7/P9/P10 tạo MAVLink-over-UDP simulation artifacts, telemetry windows, labels và IDS metrics. P10 hiện có network-only, telemetry-only và combined feature ablations; network features là IP/UDP/flow-header/time-window, chưa giải mã MAVLink payload.
+- Layer4 twin fidelity cần compare cùng observable/time-window với independent reference. Tập hiện có cung cấp một số traces DT/testbed theo domain riêng nhưng chưa tự khớp đầy đủ với topology/traffic/MAVLink của twin. Chưa có kết quả L4 validation trong workspace. Không dùng IDS F1 làm proxy cho fidelity.
+- “End-to-end fidelity validation not yet established” là câu phù hợp hiện tại; không cần tạo field test mới nếu paper chỉ claim simulation/partial calibration và coi đây là limitation.
+
+======================================================================
+6. ATTACK, RUN MATRIX VÀ DATASET OUTPUT
+======================================================================
+
+P7 SITL chấp nhận T0_Benign và T4_DoS. T4 là hping3 UDP flood giới hạn số gói tới GCS UDP endpoint; không phải MAVLink payload command corruption, không chứng minh flight-control compromise. Replay/FDI/MITM chưa hỗ trợ trong SITL code hiện hành. Không gắn label chưa được tạo đúng protocol event.
+
+Run matrix theo `P8_run_campaign.py`: 3 AFAR trace routes × 4 qdisc stress profiles × 2 traffic conditions (benign/UDP DoS) × 5 repetitions = 120 runs. `3.4 GHz` chỉ là Dataset-32 reference gate/metadata; SITL không mô phỏng RF carrier này. Run directory gồm metadata, PCAP UDP transport, telemetry, events, scope/logs; P8 dừng khi process/artifact validation thất bại. Cần Linux pilot trước full matrix.
+
+P9 tạo:
+- Packet-level rows: timestamp/IP/port/protocol/length và event-derived attack labels.
+- Flow-level: packet/byte counts và thời gian first/last theo 5-tuple.
+- 1-second windows: packet/byte rates, packet-length và interarrival summaries, UDP fraction, active-flow count/labels, ghép telemetry gần nhất.
+
+P10 dùng Random Forest với ba ablation: network-only; telemetry-only; combined. Split giữ scenario groups theo mission/channel/attack; chỉ claim class và matrix thực sự hoàn tất. Đây là IDS baseline trên dữ liệu mô phỏng, không phải accuracy trên UAV thật, không phải fidelity evidence.
+
+======================================================================
+7. GATES CẦN HOÀN THÀNH TRƯỚC PAPER
+======================================================================
+
+Gate A — Reference-data reproducibility
+1. Cài `src/pipeline/requirements.txt` trong project venv (P2 A2G36 cần SciPy và openpyxl).
+2. Chạy reference-only (`LAYER1_ONLY=1 bash src/pipeline/run_all.sh`) và lưu stdout, package versions, input checksums, outputs.
+3. Xem `layer1_dataset32_pathloss_fit.json`, chạy A2G36 branch để sinh `layer1_a2g36_pathloss_fit.json`; kiểm tra data coverage/splits, không pooled.
+4. Xem 5G manifest/holdout đã sinh; kiểm tra time-match error distributions, missingness, flight-group temporal autocorrelation; tạo figure by RAT/orientation.
+5. Chạy AADM branch và xác minh source subset/flight groups trước khi nêu con số.
+
+Gate B — Simulator reproducibility
+1. Linux host, build `uav-cas-sitl:latest`, cài Docker/Containernet/root qdisc support.
+2. Chạy một benign pilot trên mission/frequency supported; xác minh PX4/Gazebo startup, mission upload/ACK, live telemetry, qdisc counters, PCAP decode, attack event timeline, ULog/log capture.
+3. Xác minh AFAR manifest selection/source type và mission altitude mapping.
+4. Chạy full 120 runs, lưu config/seed/version/run manifest. Không report run là complete nếu required artifacts absent.
+
+Gate C — Calibration/validation claims
+1. Báo riêng fit evidence và holdout evidence cho từng model.
+2. So Layer1 external dataset theo carrier/domain riêng; không fit lại trên external test sau khi đã xem kết quả.
+3. Giữ Layer3 qdisc là stress-only nếu chưa có target-compatible packet metrics. Có thể báo sensitivity analysis trên C1–C4 và không gọi là calibration.
+4. L4 field-paired C2 comparison là future work/limitation trong simulation-only paper; không phải prerequisite để nhóm tạo simulated dataset, nhưng end-to-end calibration claim sẽ bị giới hạn tương ứng.
+5. IDS split theo mission/channel/attack, kiểm tra class coverage/leakage; bổ sung ablation và uncertainty across seeds.
+
+======================================================================
+8. GIỚI HẠN, RỦI RO VÀ PAPER POSITIONING
+======================================================================
+
+Điểm mạnh có thể phát triển: multi-source measured reference, separation theo tần số/công nghệ; reproducible PX4 SITL/C2 traffic generation; route and channel stress conditions; telemetry-aligned packet dataset; IDS generalization across simulated scenarios. Đóng góp paper có thể tập trung vào adapted multi-layer calibration workflow cho UAV–GCS simulation và dataset cyber-physical có provenance.
+
+Giới hạn cần công khai:
+- Dataset-32 chỉ bốn flight, source-processed PL và hẹp về môi trường/độ cao.
+- A2G 3.6 GHz MAT branch chưa được chạy/sinh artifact ở phiên này; kết quả chưa được đưa vào paper như con số đã có.
+- 5G NSA dataset chỉ một campaign với hai orientations; holdout mang tính exploratory, dữ liệu có temporal dependence.
+- AADM/AFAR khác traffic/radio/link purpose với MAVLink C2. Domain adaptation chưa chứng minh.
+- P5/P7 qdisc chưa nhận model calibration theo RSS/SINR/pathloss; stress profile values là giả định.
+- PX4/Gazebo/Containernet full campaign chưa chạy trong workspace hiện tại. Code integration không thay thế runtime evidence.
+- Attack scope thực tế là benign + bounded UDP flood trong SITL; replay/FDI/MITM phải hoàn thiện đúng MAVLink semantics trước khi đưa vào dataset.
+
+Do vậy paper hiện không nên tự so sánh con số IDS với UAV-CAS như cùng benchmark. Cách diễn đạt: “methodologically inspired/adapted from UAV-CAS” và giải thích task, stack, topology, attack semantics, calibration coverage khác nhau.
+
+Layer 2 holdout procedure (Linux/PX4 SITL required):
+    sudo -E python3 src/pipeline/P8_run_campaign.py --base_dir "$PWD" --output_dir "$PWD/data/mobility_holdout_results" --partition holdout --channel C1_LOS --traffic T0_Benign --repetitions 3
+    python3 src/pipeline/P13_evaluate_layer2_mobility.py --campaign_dir data/mobility_holdout_results --missions_dir data/missions --partition holdout --output "$PWD/data/model_fits/layer2_mobility_holdout.json"
+    python3 src/pipeline/P15_kinematic_milestones.py --campaign_dir data/mobility_holdout_results --missions_dir data/missions --partition holdout --p13_report data/model_fits/layer2_mobility_holdout.json --output data/model_fits/layer2_kinematic_milestones.json
+
+P15 creates per-quantity pilot milestones for 1 Hz speed, vertical rate, course turn rate, course-over-ground heading, horizontal acceleration, and lag-1 speed autocorrelation. Distribution tolerances are derived as the 95th percentile of pairwise within-source-group train-trace distances. They describe variability within this archive, not universal flight standards. Mission duration remains descriptive because AFAR timestamps are not PX4 schedule targets. Attitude, body angular rates, and 3-axis acceleration remain unconfirmed because no synchronized AFAR reference channels exist. P13 route-tracking errors are reported but need a pre-registered numerical tolerance before a numeric pass/fail claim.
+
+P13 dùng source_group_id làm đơn vị holdout, chỉ chấm completed runs, lọc theo trạng thái in-air và mission-progress hợp lệ, rồi báo RMSE/median/P95 sai lệch ngang và bias/MAE/RMSE/P95 sai lệch độ cao theo từng run và source group. Không dùng các điểm thời gian của một flight như các quan sát độc lập và không fit lại route theo test trajectory.
+
+======================================================================
+9. CÁC ARTIFACT VÀ LỆNH TÁI LẬP
+======================================================================
+
+Artifacts 5G đã sinh trong workspace:
+- `data/processed/aerpaw5g/aerpaw_5g_kpis.csv`
+- `data/processed/aerpaw5g/aerpaw_5g_manifest.json`
+- `data/model_fits/aerpaw_5g_kpi_holdout.json`
+
+Artifacts Pawprints 4G đã sinh trong workspace:
+- `data/processed/pawprints4g/pawprints4g_kpis.csv`
+- `data/processed/pawprints4g/pawprints4g_manifest.json`
+- `data/model_fits/pawprints4g_rsrp_holdout.json`
+
+`data/model_fits/four_layer_calibration_card.json` hiện dùng nhãn thận trọng: L1 là path-loss trend fit/holdout chưa couple; L2 là mobility profile fit trên train và feature-distribution shift được chấm trên AFAR holdout (chưa chạy SITL P13/P15 holdout); L3 là external radio KPI references và C2 stress assumptions; L4 chưa có target-C2 fidelity validation. Không đọc artifact fit như bằng chứng toàn simulator đã calibrated.
+
+P12 có thể sinh artifact sau khi AADM processor tạo đủ hai stage CSV `aadm_development.csv` và `aadm_testbed.csv`:
+- `data/model_fits/aadm_development_testbed_domain_comparison.json`
+
+Pawprints manifest ghi nhận 2,021 dòng nguồn, 1,217 connected rows và EARFCN 66911. Mô hình dùng slope log-distance chung với intercept cố định theo PCI để hạn chế nhiễu do đổi cell. Báo cáo time-block holdout có RMSE 2.77–9.48 dB theo từng block; do chỉ có một chuyến semi-circle, đây là kết quả exploratory trong một flight, không phải external flight-level validation.
+
+Artifacts kỳ vọng từ A2G36 sau khi cài SciPy/openpyxl:
+- `data/processed/a2g36/a2g36_pathloss.csv`
+- `data/processed/a2g36/a2g36_cir_snapshot_summary.csv`
+- `data/processed/a2g36/a2g36_manifest.json`
+- `data/model_fits/layer1_a2g36_pathloss_fit.json`
+
+Reference-only processing trên Linux:
+    python3 -m pip install -r src/pipeline/requirements.txt
+    LAYER1_ONLY=1 bash src/pipeline/run_all.sh
+
+Campaign full chỉ sau khi Linux SITL image đã build và benign pilot qua:
+    bash src/pipeline/run_all.sh
+
+Full run sẽ gọi SITL, cần root/Containernet; không chạy trên Windows PowerShell nguyên bản.
+
+======================================================================
+10. PHÁT TRIỂN SAU NÀY: ĐO ĐÚNG C2 VÀ HOÀN THIỆN BỐN LỚP
+======================================================================
+
+Mục tiêu tương lai không nhất thiết cần nhóm tự bay UAV. Có thể xây phép đo C2 ở bàn thử nghiệm bằng PX4 SITL/GCS qua radio thật hoặc channel emulator; nếu muốn claim propagation trên đường bay, cần bổ sung cấu hình không gian/độ cao thực nghiệm phù hợp. Nếu chỉ chạy network simulation với `tc/netem`, kết quả dùng để kiểm thử harness và độ nhạy, không tạo ground truth RF/C2 để hiệu chuẩn.
+
+Đo C2 đúng mục tiêu cần đồng bộ tối thiểu: radio/modem/antenna/channel/bandwidth/MCS/TX power; trajectory/geometry và timestamps; PCAP tại hai đầu; packet sequence/send-receive; loss/PER; RTT và jitter; goodput theo cửa sổ; qdisc/radio counters; traffic MAVLink và trạng thái PX4. Ghi clock synchronization, instrument/software versions, repeats, uncertainty và nguyên tắc loại mẫu. Giữ flight/runs độc lập cho calibration và holdout, khóa split trước khi xem test metrics.
+
+Kế hoạch hoàn thiện bốn lớp:
+1. **L1 propagation:** bổ sung phép đo hoặc dataset ở nhiều độ cao/geometry trên cùng radio-domain; fit path-loss model theo distance/altitude, benchmark baseline và holdout theo flight/site. Không gộp carrier khác nhau.
+2. **L2 mobility:** dùng AFAR/AADM development/trace groups để fit mobility distributions; chạy các route trong PX4; so đường tham chiếu với telemetry SITL trên held-out source groups bằng cross-track, altitude, speed, heading và temporal metrics.
+3. **L3 link performance:** dùng đồng bộ signal/link/network C2 outcomes để nối geometry/path loss → received quality/SNR → packet error/loss → delay/jitter/goodput. Fit trên runs train; tích hợp parameterized model vào P5; giữ P5 stress profiles như sensitivity baselines.
+4. **L4 end-to-end fidelity:** chạy cùng traffic, route và radio configuration ở reference testbed/channel emulator và twin; so cùng timestamps/windows/metrics trên runs không dùng tuning. Báo bias, RMSE/MAE, quantiles/CDF và uncertainty theo flight/run; IDS score không thay fidelity metrics.
+
+AFAR/AADM và Pawprints hiện hỗ trợ reference theo miền riêng; Pawprints chỉ có LTE signal/cell KPIs, AADM có AERPAW link-quality/data-mule measures, còn AFAR giúp mobility và source DT–testbed comparison. Chúng không thay thế C2 measurement bundle nói trên. Nếu không thu được target-compatible C2 references, paper giữ claim simulation-only emulator với external empirical references và network stress tests; L3 C2 calibration/L4 end-to-end C2 validation là future work.
+
+======================================================================
+11. REFERENCES
+======================================================================
+
+[1] S. Mishra, B. Bhargava, Z. Liu, S. Islam, “UAV-CAS: A Calibrated Digital-Twin Dataset for Intrusion Detection in UAV Swarm Networks,” arXiv:2606.17845, 2026. https://arxiv.org/abs/2606.17845
+
+[2] A. Gürses and M. L. Sichitiu, “AERPAW air-to-ground channel sounding and path loss measurement with a UAV at 3.4GHz,” Dryad Dataset, DOI: 10.5061/dryad.2ngf1vj4r. https://doi.org/10.5061/dryad.2ngf1vj4r
+
+[3] H. Li et al., “Air-to-ground channel dataset via UAV-aided measurements in multiple scenarios,” Data in Brief, vol. 63, 112086, 2025, DOI: 10.1016/j.dib.2025.112086. Data: “Measured A2G Channel Dataset (CIR) in Multiple Scenarios,” Mendeley Data, DOI: 10.17632/8p6r8ft4fz.2. https://doi.org/10.1016/j.dib.2025.112086 ; https://doi.org/10.17632/8p6r8ft4fz.2
+
+[4] R. Asokan, A. H. Fahim Raouf, O. Ozdemir, I. Guvenc, M. L. Sichitiu, “Ericsson 5G NSA network RF and throughput measurements on AERPAW network,” Dryad Dataset, 2025, DOI: 10.5061/dryad.wh70rxx06. https://doi.org/10.5061/dryad.wh70rxx06
+
+[5] A. Gürses et al., “AERPAW Find-a-Rover (AFAR) Challenge in December 2023,” Dryad Dataset, DOI: 10.5061/dryad.18931zd4g. https://doi.org/10.5061/dryad.18931zd4g
+
+[6] M. S. Hossen et al., “Collection: UAV-Based Wireless Multi-Modal Measurements From AERPAW Autonomous Data Mule (AADM) Challenge in Digital Twin and Real-World Environments,” IEEE Data Descriptions, DOI: 10.1109/IEEEDATA.2026.3685296; Dataset Dryad DOI: 10.5061/dryad.7d7wm3898. https://doi.org/10.5061/dryad.7d7wm3898
+
+[7] PX4 SITL/Gazebo and MAVSDK implementation references are software dependencies, not calibration data: PX4 Gazebo guide https://docs.px4.io/v1.14/en/sim_gazebo_gz/ ; MAVSDK connections https://github.com/mavlink/MAVSDK-docs/blob/main/en/cpp/guide/connections.md
+
+[8] S. Singh et al., “AERPAW: Aerial Android-based 4G measurements for semi circle trajectories around a private base station,” Dryad Dataset, DOI: 10.5061/dryad.gmsbcc30x. https://doi.org/10.5061/dryad.gmsbcc30x
+
+END OF SURVEY
+
+
+

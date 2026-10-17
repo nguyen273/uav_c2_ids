@@ -1,0 +1,97 @@
+{
+  "dataset_id": "Ericsson 5G NSA network RF and throughput measurements on AERPAW network",
+  "doi": "10.5061/dryad.wh70rxx06",
+  "source_citation": "Asokan et al. (2025), Dryad",
+  "role": "independent empirical Layer-3 KPI relation check for LTE/NR; not MAVLink C2 calibration and not Layer-1 path-loss input",
+  "source_domain": {
+    "network": "Ericsson 5G NSA / Quectel modem",
+    "flight_height_source": "30 m campaign label in Dryad README",
+    "orientations": [
+      "yaw45",
+      "yaw315"
+    ],
+    "tower_anchor_source": "LW1 coordinates in bundled Dryad example.m"
+  },
+  "matching": "RSRP timestamp master; SINR/CQI/MCS/throughput nearest timestamp within 2 seconds where present",
+  "altitude_semantics": "source field retained without conversion; not asserted AGL",
+  "distance_semantics": "horizontal geodesic distance to LW1 anchor; not 3D distance",
+  "anchor_source_file": "D:\\nckh3\\Dryad\\example.m",
+  "anchor_source_sha256": "ffca8926e314b784dff91261de12d48d047c841aa8f7ae6065585f6c4aa8b270",
+  "throughput_unit": "Mbps per Dryad README",
+  "inputs": [
+    {
+      "file": "D:\\nckh3\\Dryad\\yaw45\\inputf1_rsrp_with_header.csv",
+      "sha256": "8d4a43e88eae096b94f25cdff0cd7c715c1d133cea21aa7f9b9cf588b5d62b42"
+    },
+    {
+      "file": "D:\\nckh3\\Dryad\\yaw45\\inputf1_sinr_with_header.csv",
+      "sha256": "7cc7a83557c261d191c564952a3d7d68455a714c418f48b0bd2f77de758b4b73"
+    },
+    {
+      "file": "D:\\nckh3\\Dryad\\yaw45\\inputf1_cellid_with_header.csv",
+      "sha256": "8691d2559bc243add52e148c5758df57cbd2af8acb690667f95f0b2ca9c29031"
+    },
+    {
+      "file": "D:\\nckh3\\Dryad\\yaw45\\inputf2_rsrp_with_header.csv",
+      "sha256": "a9fbb6d2ffbb1a57419a14de7542091c43cc05920c0fefda6b83c5bae684c7cd"
+    },
+    {
+      "file": "D:\\nckh3\\Dryad\\yaw45\\inputf2_sinr_with_header.csv",
+      "sha256": "cfa78b91885059504d0041a12d4f8f4888787e82b3494cc9fd61b0cc5a4f40cc"
+    },
+    {
+      "file": "D:\\nckh3\\Dryad\\yaw45\\inputf2_cellid_with_header.csv",
+      "sha256": "e83e363f40e34f2d866c7f57661930ffddd1962ce0e1d2d577e092eb39810d32"
+    },
+    {
+      "file": "D:\\nckh3\\Dryad\\yaw45\\inputf2_cqi_with_header.csv",
+      "sha256": "b6b7766c32074f47de9506e3d3a45367dc337e55a205f6c06ec31bdd25487fa1"
+    },
+    {
+      "file": "D:\\nckh3\\Dryad\\yaw45\\inputf2_mcs_with_header.csv",
+      "sha256": "b6246a81b313effd0689aba2da6ff9ff70028ec2b8ac276e97d0b040fa61aa8a"
+    },
+    {
+      "file": "D:\\nckh3\\Dryad\\yaw45\\input_throughput_with_header.csv",
+      "sha256": "205f8670f665b9d9f1611e18556561d57708d0d4ff1c07f46c6f165e5670ca69"
+    },
+    {
+      "file": "D:\\nckh3\\Dryad\\yaw315\\inputf1_rsrp_with_header.csv",
+      "sha256": "5255c0de006663887b61d60c03359c73251c69d42a1da52fa62df714c2fa937c"
+    },
+    {
+      "file": "D:\\nckh3\\Dryad\\yaw315\\inputf1_sinr_with_header.csv",
+      "sha256": "c745eeb4c3cb98722cf27b7a48ee90195b30f7ca5167dd41c6193ae9531ef7b4"
+    },
+    {
+      "file": "D:\\nckh3\\Dryad\\yaw315\\inputf1_cellid_with_header.csv",
+      "sha256": "4e89b64a945b9389ea4f5ff681201300e3abea6bf09ab85582c45c01ebc66646"
+    },
+    {
+      "file": "D:\\nckh3\\Dryad\\yaw315\\inputf2_rsrp_with_header.csv",
+      "sha256": "55cb24946e10af564a5f0fbbb677f5169c0d6b4976bba7bea8aa24839a19e590"
+    },
+    {
+      "file": "D:\\nckh3\\Dryad\\yaw315\\inputf2_sinr_with_header.csv",
+      "sha256": "8292359125bab1ebd7aad73bce9c7a08491c54a5722f756ea7178b002d854078"
+    },
+    {
+      "file": "D:\\nckh3\\Dryad\\yaw315\\inputf2_cellid_with_header.csv",
+      "sha256": "7dc896b787a8babdbe6c95a79748a4d4a08e5a673b7f376d5018a85992cafc42"
+    },
+    {
+      "file": "D:\\nckh3\\Dryad\\yaw315\\inputf2_cqi_with_header.csv",
+      "sha256": "139fecd647f685f46b20e133cca4de28e8dbf0724f6f81d2f38d0403506b7988"
+    },
+    {
+      "file": "D:\\nckh3\\Dryad\\yaw315\\inputf2_mcs_with_header.csv",
+      "sha256": "a8d9e1c0d8d6d312cc9d0a35f3ee81ab6f8a93c6ab36181a1b5f39e98d7ad8fa"
+    },
+    {
+      "file": "D:\\nckh3\\Dryad\\yaw315\\input_throughput_with_header.csv",
+      "sha256": "36521026e77c1c3edb5efda2ef6e9ecdba30bbdcae632fc7bc23ce6a2874b6b1"
+    }
+  ],
+  "rows": 11465,
+  "output": "D:\\nckh3\\data\\processed\\aerpaw5g\\aerpaw_5g_kpis.csv"
+}

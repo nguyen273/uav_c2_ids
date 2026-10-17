@@ -1,0 +1,150 @@
+{
+  "model_type": "dataset32_flight_fixed_effects_log_distance_path_loss_slope",
+  "calibration_status": "dataset32_empirical_path_loss_distance_slope_flight_grouped_holdout",
+  "absolute_power_calibrated": false,
+  "absolute_path_loss_prediction_supported": false,
+  "frequency_ghz": 3.4,
+  "reference_distance_m": null,
+  "path_loss_slope_db_per_decade": 25.7794836243375,
+  "path_loss_exponent_n": 2.5779483624337503,
+  "fit_equation": "path_loss_db = flight_specific_offset_db + path_loss_slope_db_per_decade * log10(distance_3d_m) + residual",
+  "fit_method": "within-flight centered least squares with equal total weight per flight",
+  "validation_method": "exact leave-one-flight-out; each holdout is demeaned within that flight before scoring; scores validate trend only",
+  "validation_summary": {
+    "flight_count": 4,
+    "row_count": 136987,
+    "folds": [
+      {
+        "heldout_flight": "f10",
+        "training_flights": [
+          "f11",
+          "f12",
+          "f13"
+        ],
+        "path_loss_slope_db_per_decade": 24.614526226560855,
+        "path_loss_exponent_n": 2.4614526226560853,
+        "within_flight_demeaned_metrics": {
+          "n_rows": 19656,
+          "rmse_db": 4.134369962437391,
+          "mae_db": 3.322630073294567
+        }
+      },
+      {
+        "heldout_flight": "f11",
+        "training_flights": [
+          "f10",
+          "f12",
+          "f13"
+        ],
+        "path_loss_slope_db_per_decade": 25.15632780191681,
+        "path_loss_exponent_n": 2.515632780191681,
+        "within_flight_demeaned_metrics": {
+          "n_rows": 19803,
+          "rmse_db": 3.206508597904265,
+          "mae_db": 2.634696903856422
+        }
+      },
+      {
+        "heldout_flight": "f12",
+        "training_flights": [
+          "f10",
+          "f11",
+          "f13"
+        ],
+        "path_loss_slope_db_per_decade": 26.25537958133306,
+        "path_loss_exponent_n": 2.625537958133306,
+        "within_flight_demeaned_metrics": {
+          "n_rows": 48702,
+          "rmse_db": 2.907508626256571,
+          "mae_db": 2.260774275027575
+        }
+      },
+      {
+        "heldout_flight": "f13",
+        "training_flights": [
+          "f10",
+          "f11",
+          "f12"
+        ],
+        "path_loss_slope_db_per_decade": 26.607078401995473,
+        "path_loss_exponent_n": 2.660707840199547,
+        "within_flight_demeaned_metrics": {
+          "n_rows": 48826,
+          "rmse_db": 2.880470741653658,
+          "mae_db": 2.267573844499108
+        }
+      }
+    ],
+    "mean_fold_rmse_db": 3.282214482062971,
+    "mean_fold_mae_db": 2.621418774169418,
+    "pooled_within_flight_demeaned_metrics": {
+      "n_rows": 136987,
+      "rmse_db": 3.109349327179607,
+      "mae_db": 2.4459892599058892
+    }
+  },
+  "flights": {
+    "f10": {
+      "rows": 19656,
+      "campaign_id": "2026-04-30_18_56",
+      "distance_min_m": 54.887653,
+      "distance_max_m": 444.6045,
+      "altitude_agl_min_m": 54.835003,
+      "altitude_agl_max_m": 60.475002,
+      "mean_path_loss_db": 95.51254919097833,
+      "flight_specific_slope_db_per_decade": 27.77561475448283
+    },
+    "f11": {
+      "rows": 19803,
+      "campaign_id": "2026-04-30_19_08",
+      "distance_min_m": 55.86002,
+      "distance_max_m": 444.50092,
+      "altitude_agl_min_m": 54.95999,
+      "altitude_agl_max_m": 60.440002,
+      "mean_path_loss_db": 95.68383245915115,
+      "flight_specific_slope_db_per_decade": 26.855656608843137
+    },
+    "f12": {
+      "rows": 48702,
+      "campaign_id": "2026-04-30_19_17",
+      "distance_min_m": 56.233227,
+      "distance_max_m": 330.35754,
+      "altitude_agl_min_m": 55.255,
+      "altitude_agl_max_m": 60.904995,
+      "mean_path_loss_db": 85.70521921944602,
+      "flight_specific_slope_db_per_decade": 22.60898176189385
+    },
+    "f13": {
+      "rows": 48826,
+      "campaign_id": "2026-04-30_19_38",
+      "distance_min_m": 56.097683,
+      "distance_max_m": 330.21854,
+      "altitude_agl_min_m": 55.265003,
+      "altitude_agl_max_m": 61.09499,
+      "mean_path_loss_db": 85.70982387645887,
+      "flight_specific_slope_db_per_decade": 20.44255675895333
+    }
+  },
+  "domain": {
+    "distance_min_m": 54.887653,
+    "distance_max_m": 444.6045,
+    "altitude_agl_min_m": 54.835003,
+    "altitude_agl_max_m": 61.09499,
+    "frequency_ghz": 3.4,
+    "environment": "AERPAW Lake Wheeler rural testbed; fixed LW1 transmitter"
+  },
+  "source": {
+    "dataset_id": "AERPAW Dataset-32",
+    "doi": "10.5061/dryad.2ngf1vj4r",
+    "input_csv": "D:\\nckh3\\data\\processed\\dataset32\\dataset32_pathloss.csv",
+    "rows_used": 136987,
+    "measurement_semantics": "source-provided processed path_loss_db; raw-IQ not recalculated"
+  },
+  "limitations": [
+    "Four flights are the independent grouping units; rows within each flight are temporally dependent.",
+    "Flight-specific offsets are removed for slope estimation and holdout scoring; absolute path loss on a new flight is unsupported.",
+    "Dataset documentation lists processed path_loss_db but does not establish traceable TX/RX power calibration uncertainty.",
+    "Coverage is limited to 3.4 GHz, approximately 60 m UAV AGL, the fixed LW1 site and observed distance span.",
+    "This path-loss slope does not calibrate received power, SNR, fading, PER, delay, packet loss or goodput."
+  ]
+}

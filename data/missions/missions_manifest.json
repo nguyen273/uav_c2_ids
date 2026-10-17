@@ -1,0 +1,200 @@
+{
+  "source": "AFAR 2023 SigMF testbed GPS log.csv",
+  "trace_semantics": "resampled recorded GPS path; mobility reference only, not a validated PX4 mission",
+  "altitude_semantics": "relative to first altitude in source trace; terrain datum and absolute AGL not inferred",
+  "split_unit": "source_group_id (three-digit top-level directory in the local archive); all locations from one group stay in one partition",
+  "source_group_semantics": "Pipeline-defined grouping key; not asserted to be an AFAR campaign identifier.",
+  "holdout_source_group_ids": [
+    "328"
+  ],
+  "training_source_group_ids": [
+    "288",
+    "300",
+    "301",
+    "309"
+  ],
+  "source_group_count": 5,
+  "trace_count": 15,
+  "missions": [
+    {
+      "mission_id": "F1_afar_trace_1",
+      "source_file": "D:\\nckh3\\AFAR  2023_SigMF\\288\\testbed\\loc1\\logs\\log.csv",
+      "source_sha256": "6147a0311a75690025ad80af1dbe436cf844ab64f1d82242462aa465a88c65fb",
+      "trace_file": "F1_afar_trace_1.csv",
+      "source_group_id": "288",
+      "location_id": "loc1",
+      "partition": "train",
+      "transmitter_anchor_source": "AFAR source main.m loc1/loc2/loc3 coordinates",
+      "samples": 50,
+      "duration_s": 672.4200689792633
+    },
+    {
+      "mission_id": "F2_afar_trace_2",
+      "source_file": "D:\\nckh3\\AFAR  2023_SigMF\\288\\testbed\\loc2\\logs\\log.csv",
+      "source_sha256": "8c5df7338e1d90f75daa0105153fbb8fa5868edaea1a3823c1ee4bc1bade3024",
+      "trace_file": "F2_afar_trace_2.csv",
+      "source_group_id": "288",
+      "location_id": "loc2",
+      "partition": "train",
+      "transmitter_anchor_source": "AFAR source main.m loc1/loc2/loc3 coordinates",
+      "samples": 50,
+      "duration_s": 724.0000741481781
+    },
+    {
+      "mission_id": "F3_afar_trace_3",
+      "source_file": "D:\\nckh3\\AFAR  2023_SigMF\\288\\testbed\\loc3\\logs\\log.csv",
+      "source_sha256": "655ac29766f18e6ec743f50eb597821f61f3173116ed753ab842b2f42166bcd4",
+      "trace_file": "F3_afar_trace_3.csv",
+      "source_group_id": "288",
+      "location_id": "loc3",
+      "partition": "train",
+      "transmitter_anchor_source": "AFAR source main.m loc1/loc2/loc3 coordinates",
+      "samples": 50,
+      "duration_s": 695.5999550819397
+    },
+    {
+      "mission_id": "F4_afar_trace_4",
+      "source_file": "D:\\nckh3\\AFAR  2023_SigMF\\300\\testbed\\loc1\\logs\\log.csv",
+      "source_sha256": "dd41f441b299a3e97fd4e6328a9f815cf4d4469311ac909daebf4742f7ef04cd",
+      "trace_file": "F4_afar_trace_4.csv",
+      "source_group_id": "300",
+      "location_id": "loc1",
+      "partition": "train",
+      "transmitter_anchor_source": "AFAR source main.m loc1/loc2/loc3 coordinates",
+      "samples": 50,
+      "duration_s": 698.2199759483337
+    },
+    {
+      "mission_id": "F5_afar_trace_5",
+      "source_file": "D:\\nckh3\\AFAR  2023_SigMF\\300\\testbed\\loc2\\logs\\log.csv",
+      "source_sha256": "37f0fd45f653ce3a3a50fb5a9b54e63e193120c4e18f405483eb3e2b2071ba59",
+      "trace_file": "F5_afar_trace_5.csv",
+      "source_group_id": "300",
+      "location_id": "loc2",
+      "partition": "train",
+      "transmitter_anchor_source": "AFAR source main.m loc1/loc2/loc3 coordinates",
+      "samples": 50,
+      "duration_s": 704.4000780582428
+    },
+    {
+      "mission_id": "F6_afar_trace_6",
+      "source_file": "D:\\nckh3\\AFAR  2023_SigMF\\300\\testbed\\loc3\\logs\\log.csv",
+      "source_sha256": "e56f0196fed9fc61f06a718af27175a670d59934c39ae49d68a13924e10c130a",
+      "trace_file": "F6_afar_trace_6.csv",
+      "source_group_id": "300",
+      "location_id": "loc3",
+      "partition": "train",
+      "transmitter_anchor_source": "AFAR source main.m loc1/loc2/loc3 coordinates",
+      "samples": 50,
+      "duration_s": 734.2000050544739
+    },
+    {
+      "mission_id": "F7_afar_trace_7",
+      "source_file": "D:\\nckh3\\AFAR  2023_SigMF\\301\\testbed\\loc1\\logs\\log.csv",
+      "source_sha256": "d55adf069a463546dfb34e515f116b295e62b49d4601fba340a32cc67689e71b",
+      "trace_file": "F7_afar_trace_7.csv",
+      "source_group_id": "301",
+      "location_id": "loc1",
+      "partition": "train",
+      "transmitter_anchor_source": "AFAR source main.m loc1/loc2/loc3 coordinates",
+      "samples": 50,
+      "duration_s": 598.4199550151825
+    },
+    {
+      "mission_id": "F8_afar_trace_8",
+      "source_file": "D:\\nckh3\\AFAR  2023_SigMF\\301\\testbed\\loc2\\logs\\log.csv",
+      "source_sha256": "0f9cfe37b5e59252d98167433ff1d375042be4075f302c8a202a1360c8597002",
+      "trace_file": "F8_afar_trace_8.csv",
+      "source_group_id": "301",
+      "location_id": "loc2",
+      "partition": "train",
+      "transmitter_anchor_source": "AFAR source main.m loc1/loc2/loc3 coordinates",
+      "samples": 50,
+      "duration_s": 686.399943113327
+    },
+    {
+      "mission_id": "F9_afar_trace_9",
+      "source_file": "D:\\nckh3\\AFAR  2023_SigMF\\301\\testbed\\loc3\\logs\\log.csv",
+      "source_sha256": "0f8965b02ba43f914d26b24b679b3bcd35cc08e0d832aa5113a842accc9dce4d",
+      "trace_file": "F9_afar_trace_9.csv",
+      "source_group_id": "301",
+      "location_id": "loc3",
+      "partition": "train",
+      "transmitter_anchor_source": "AFAR source main.m loc1/loc2/loc3 coordinates",
+      "samples": 50,
+      "duration_s": 651.6201570034027
+    },
+    {
+      "mission_id": "F10_afar_trace_10",
+      "source_file": "D:\\nckh3\\AFAR  2023_SigMF\\309\\testbed\\loc1\\logs\\log.csv",
+      "source_sha256": "3cf3864423b0b0be81ffd3a0e994619cdbcad6c66336e93cff2c2b3c85077f4a",
+      "trace_file": "F10_afar_trace_10.csv",
+      "source_group_id": "309",
+      "location_id": "loc1",
+      "partition": "train",
+      "transmitter_anchor_source": "AFAR source main.m loc1/loc2/loc3 coordinates",
+      "samples": 50,
+      "duration_s": 978.6200890541077
+    },
+    {
+      "mission_id": "F11_afar_trace_11",
+      "source_file": "D:\\nckh3\\AFAR  2023_SigMF\\309\\testbed\\loc2\\logs\\log.csv",
+      "source_sha256": "b6cfbd0f14d088a49a1e52ee5da4788d65dcd9fb846effde02fd961820447d09",
+      "trace_file": "F11_afar_trace_11.csv",
+      "source_group_id": "309",
+      "location_id": "loc2",
+      "partition": "train",
+      "transmitter_anchor_source": "AFAR source main.m loc1/loc2/loc3 coordinates",
+      "samples": 50,
+      "duration_s": 981.7999649047852
+    },
+    {
+      "mission_id": "F12_afar_trace_12",
+      "source_file": "D:\\nckh3\\AFAR  2023_SigMF\\309\\testbed\\loc3\\logs\\log.csv",
+      "source_sha256": "9fe4d780b1700133a7ac21edafbc78e090bafe7eb9d60d325882300cf49151ac",
+      "trace_file": "F12_afar_trace_12.csv",
+      "source_group_id": "309",
+      "location_id": "loc3",
+      "partition": "train",
+      "transmitter_anchor_source": "AFAR source main.m loc1/loc2/loc3 coordinates",
+      "samples": 50,
+      "duration_s": 858.6201679706573
+    },
+    {
+      "mission_id": "F13_afar_trace_13",
+      "source_file": "D:\\nckh3\\AFAR  2023_SigMF\\328\\testbed\\loc1\\logs\\log.csv",
+      "source_sha256": "bd7096c5a4fc471e764d0878a4f0aba316611645b32737e2bb9e871f081edc49",
+      "trace_file": "F13_afar_trace_13.csv",
+      "source_group_id": "328",
+      "location_id": "loc1",
+      "partition": "holdout",
+      "transmitter_anchor_source": "AFAR source main.m loc1/loc2/loc3 coordinates",
+      "samples": 50,
+      "duration_s": 708.4000008106232
+    },
+    {
+      "mission_id": "F14_afar_trace_14",
+      "source_file": "D:\\nckh3\\AFAR  2023_SigMF\\328\\testbed\\loc2\\logs\\log.csv",
+      "source_sha256": "2dbed94a4014c3f3e24c7ea56590174376ed0369524bc614e98afe3ffc5d17ed",
+      "trace_file": "F14_afar_trace_14.csv",
+      "source_group_id": "328",
+      "location_id": "loc2",
+      "partition": "holdout",
+      "transmitter_anchor_source": "AFAR source main.m loc1/loc2/loc3 coordinates",
+      "samples": 50,
+      "duration_s": 710.6000339984894
+    },
+    {
+      "mission_id": "F15_afar_trace_15",
+      "source_file": "D:\\nckh3\\AFAR  2023_SigMF\\328\\testbed\\loc3\\logs\\log.csv",
+      "source_sha256": "338fc5ac0dd9c7cc200ebe91845dab4917fdf8bb8fef3452e57f06e4c6c0a498",
+      "trace_file": "F15_afar_trace_15.csv",
+      "source_group_id": "328",
+      "location_id": "loc3",
+      "partition": "holdout",
+      "transmitter_anchor_source": "AFAR source main.m loc1/loc2/loc3 coordinates",
+      "samples": 50,
+      "duration_s": 711.9998321533203
+    }
+  ]
+}

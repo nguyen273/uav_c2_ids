@@ -1,0 +1,48 @@
+{
+  "dataset_id": "AERPAW-Dataset-32",
+  "citation": "Gurses and Sichitiu (2026), Dryad DOI 10.5061/dryad.2ngf1vj4r",
+  "source_readme": "D:\\nckh3\\Dataset-32 AERPAW Air-to-Ground Channel Sounding and Path Loss Measurements at 3.4 GHz with Linear and Zigzag UAV Trajectories\\README.md",
+  "source_readme_sha256": "d4b0fe6b2032af7cd80305b3b104a2b01ec1eb6906cbf6bf33a40809233a4134",
+  "target_frequency_hz": 3400000000,
+  "input_flights": [
+    {
+      "flight_id": "f10",
+      "campaign_id": "2026-04-30_18_56",
+      "rows": 19656,
+      "capture_count": 36828,
+      "frequency_hz": 3400000000,
+      "csv_sha256": "00486e8f7ba6b33c071ac028d4495c9cc159e1321f8477688a131ff91ad8424c",
+      "sigmf_meta_sha256": "21425d30dd7c60bb33f1d7c07dceecb96ad846a594cf68991dfbf43976881209"
+    },
+    {
+      "flight_id": "f11",
+      "campaign_id": "2026-04-30_19_08",
+      "rows": 19803,
+      "capture_count": 30901,
+      "frequency_hz": 3400000000,
+      "csv_sha256": "dc4748f0875799273bf38a1039091b8d01fe5f0d5e0547b6febf85a6ad21e1b3",
+      "sigmf_meta_sha256": "af6bb59ae61f63e9f27febfbc4840400ba741965545d844b6e49bb01e62b1b1a"
+    },
+    {
+      "flight_id": "f12",
+      "campaign_id": "2026-04-30_19_17",
+      "rows": 48702,
+      "capture_count": 58659,
+      "frequency_hz": 3400000000,
+      "csv_sha256": "6e88178016af2a28d5f2a0ef5fadfceb3ca7b58a09d80fe9119f8a9b58dda94d",
+      "sigmf_meta_sha256": "3591a02c655aef800af258ae48a6f7934718373ff3306fcb99030b9e78d082c5"
+    },
+    {
+      "flight_id": "f13",
+      "campaign_id": "2026-04-30_19_38",
+      "rows": 48826,
+      "capture_count": 61485,
+      "frequency_hz": 3400000000,
+      "csv_sha256": "a711b0fa21dadbc00e2647716d5055a26e229da96348746f06b6988c99a143ae",
+      "sigmf_meta_sha256": "85aed815c0bdd4c35d0ea54ea3fe06ab47043014ef24a5986d30bc43caecff55"
+    }
+  ],
+  "rows_total": 136987,
+  "output_csv": "D:\\nckh3\\data\\processed\\dataset32\\dataset32_pathloss.csv",
+  "measurement_semantics": "source-provided processed path_loss_db and 3D uav2ground_dist; not independently verified metrology-traceable absolute calibration"
+}

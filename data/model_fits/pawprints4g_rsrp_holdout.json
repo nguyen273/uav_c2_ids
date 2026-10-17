@@ -1,0 +1,120 @@
+{
+  "evaluation_type": "Pawprints4G_single_flight_contiguous_time_blocked_RSRP_distance_trend",
+  "source": "AERPAW Pawprints Dryad DOI 10.5061/dryad.gmsbcc30x",
+  "rows_used": 1217,
+  "block_count_requested": 5,
+  "holdout_folds": [
+    {
+      "heldout_contiguous_time_block": 0,
+      "train_rows": 973,
+      "test_rows": 244,
+      "training_pci_values": [
+        1,
+        2
+      ],
+      "model": "shared_log10_distance_slope_with_PCI_fixed_intercepts",
+      "rsrp_distance_trend_slope_db_per_decade": -16.87163061004568,
+      "heldout_metrics": {
+        "n": 244,
+        "rmse_db": 9.47804651354466,
+        "mae_db": 7.0266398010697015,
+        "bias_pred_minus_observed_db": 3.3536569927146083
+      }
+    },
+    {
+      "heldout_contiguous_time_block": 1,
+      "train_rows": 974,
+      "test_rows": 243,
+      "training_pci_values": [
+        1,
+        2
+      ],
+      "model": "shared_log10_distance_slope_with_PCI_fixed_intercepts",
+      "rsrp_distance_trend_slope_db_per_decade": -14.616744994998092,
+      "heldout_metrics": {
+        "n": 243,
+        "rmse_db": 3.9456124719829933,
+        "mae_db": 3.187077242872078,
+        "bias_pred_minus_observed_db": -1.5995549327732221
+      }
+    },
+    {
+      "heldout_contiguous_time_block": 2,
+      "train_rows": 974,
+      "test_rows": 243,
+      "training_pci_values": [
+        1,
+        2
+      ],
+      "model": "shared_log10_distance_slope_with_PCI_fixed_intercepts",
+      "rsrp_distance_trend_slope_db_per_decade": -14.262310713197236,
+      "heldout_metrics": {
+        "n": 243,
+        "rmse_db": 2.7712910924775547,
+        "mae_db": 2.203627920749623,
+        "bias_pred_minus_observed_db": 0.2548569767731889
+      }
+    },
+    {
+      "heldout_contiguous_time_block": 3,
+      "train_rows": 974,
+      "test_rows": 243,
+      "training_pci_values": [
+        1,
+        2
+      ],
+      "model": "shared_log10_distance_slope_with_PCI_fixed_intercepts",
+      "rsrp_distance_trend_slope_db_per_decade": -15.515239160783088,
+      "heldout_metrics": {
+        "n": 243,
+        "rmse_db": 5.640781062015014,
+        "mae_db": 4.792823440017708,
+        "bias_pred_minus_observed_db": -2.500685836793795
+      }
+    },
+    {
+      "heldout_contiguous_time_block": 4,
+      "train_rows": 973,
+      "test_rows": 244,
+      "training_pci_values": [
+        1,
+        2
+      ],
+      "model": "shared_log10_distance_slope_with_PCI_fixed_intercepts",
+      "rsrp_distance_trend_slope_db_per_decade": -12.492472883793521,
+      "heldout_metrics": {
+        "n": 244,
+        "rmse_db": 6.483920778817143,
+        "mae_db": 5.6523438103694605,
+        "bias_pred_minus_observed_db": 0.8580008261373172
+      }
+    }
+  ],
+  "connected_PCI_summary": {
+    "1": {
+      "rows": 320,
+      "rsrp_median_dbm": -83.5,
+      "rsrq_median_db": -7.0,
+      "rssi_median_dbm": -59.0,
+      "horizontal_distance_range_m": [
+        60.19163791871914,
+        419.2749849251223
+      ]
+    },
+    "2": {
+      "rows": 897,
+      "rsrp_median_dbm": -83.0,
+      "rsrq_median_db": -6.0,
+      "rssi_median_dbm": -61.0,
+      "horizontal_distance_range_m": [
+        30.86131016001478,
+        496.5512038265449
+      ]
+    }
+  },
+  "limitations": [
+    "All folds come from one semi-circle flight; contiguous time blocks are not independent flight-level replicates.",
+    "Distance trend controls for PCI-specific intercepts but remains exploratory within one flight; it is not a transferable absolute path-loss model.",
+    "Pawprints does not provide MAVLink packet loss, RTT, jitter, or C2 goodput; this result is not used to set qdisc."
+  ]
+}

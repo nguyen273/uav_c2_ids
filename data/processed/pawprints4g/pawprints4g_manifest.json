@@ -1,0 +1,64 @@
+{
+  "dataset_id": "AERPAW: Aerial Android-based 4G measurements for semi circle trajectories around a private base station",
+  "doi": "10.5061/dryad.gmsbcc30x",
+  "source_file": "D:\\nckh3\\AERPAW_PawPrints_SemiCircles\\Logs\\pawprints_4G.csv",
+  "source_sha256": "180c6b088f1868154eb6f511b73d45486efc78fea53a8bfb6f4d3578133d3492",
+  "role": "external LTE radio KPI and geometry reference; not MAVLink C2 calibration",
+  "source_domain": {
+    "trajectory": "semi-circle",
+    "campaign_altitude_label_m": 50,
+    "base_station_latitude": 35.72748,
+    "base_station_longitude": -78.69592,
+    "base_station_antenna_height_m": 12.0,
+    "source_altitude_values_are_preserved_without_reinterpretation": true
+  },
+  "columns_present": [
+    "timestamp",
+    "longitude",
+    "latitude",
+    "altitude",
+    "rsrp",
+    "rsrq",
+    "rssi",
+    "asu",
+    "earfcn",
+    "pci",
+    "is_connected",
+    "ta",
+    "ci",
+    "tac",
+    "bands",
+    "modes",
+    "mcc",
+    "mnc"
+  ],
+  "rows_retained": 2021,
+  "connected_rows": 1217,
+  "pci_values": [
+    1,
+    2,
+    353,
+    450
+  ],
+  "earfcn_values": [
+    66911
+  ],
+  "measurement_columns": [
+    "RSRP",
+    "RSRQ",
+    "RSSI",
+    "PCI",
+    "connected flag",
+    "timing advance"
+  ],
+  "not_measured_or_not_provided": [
+    "MAVLink packets",
+    "packet loss",
+    "RTT",
+    "jitter",
+    "C2 goodput",
+    "application throughput"
+  ],
+  "distance_semantics": "horizontal geodesic distance derived from source GPS and Dryad base-station coordinates",
+  "output_file": "D:\\nckh3\\data\\processed\\pawprints4g\\pawprints4g_kpis.csv"
+}

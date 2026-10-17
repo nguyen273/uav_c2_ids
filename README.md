@@ -1,189 +1,192 @@
-# UAV C2 IDS DATASET (PHASE 3 FINAL PRODUCTION RELEASE)
+# UAV C2 IDS: Measurement-Calibrated Digital Twin & Intrusion Detection Evaluation
 
-> **Phiên bản:** v2.1.0 
-> **Tổng số cửa sổ:** 59,380 windows (1.0s window, 0.5s stride)  
-> **Tổng số thực nghiệm:** 156 runs (12 Benign + 144 Attack)  
-> **Số cột:** 59 cột sạch 
-> **Vantage Point:** GCS-side (Trạm điều khiển mặt đất thu/phát MAVLink UDP)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Platform: Linux/WSL2](https://img.shields.io/badge/platform-Linux%20%7C%20WSL2-green.svg)](https://ubuntu.com/)
+[![SITL: PX4 v1.14](https://img.shields.io/badge/SITL-PX4%20v1.14-orange.svg)](https://docs.px4.io/v1.14/en/)
+[![Simulator: Gazebo Garden](https://img.shields.io/badge/Sim-Gazebo%20Garden-blueviolet.svg)](https://gazebosim.org/)
+[![Kaggle Dataset](https://img.shields.io/badge/Kaggle-UAV%20C2%20Dataset-20BEFF.svg)](https://www.kaggle.com/datasets/nguyen273mmb/uav-c2-pcap)
 
----
+This repository contains the source code, empirical calibration pipeline, processed data, and baseline machine learning evaluations for the **UAV Command-and-Control (C2) Cyber-Physical Digital Twin and Intrusion Detection System (IDS)**.
 
-## 1. DANH MỤC CÁC FILE TRONG THƯ MỤC NÀY
-
-| Tên File | Định Dạng | Số Dòng | Dung Lượng | Mô Tả |
-| :--- | :---: | :---: | :---: | :--- |
-| [`windows_1s.parquet`](windows_1s.parquet) | Parquet | 59,380 | ~8.20 MB | **Master Dataset dạng Parquet** (tối ưu tốc độ nạp & dung lượng). |
-| [`windows_1s.csv`](windows_1s.csv) | CSV | 59,380 | ~38.15 MB | **Master Dataset dạng CSV** (phù hợp mở bằng Excel/Pandas/R). |
-| [`train.parquet`](train.parquet) | Parquet | 41,426 | ~5.75 MB | Tập **Huấn luyện (Train)** sạch (110 runs, 0 transition). |
-| [`val.parquet`](val.parquet) | Parquet | 9,840 | ~1.48 MB | Tập **Validation** sạch để tune ngưỡng & siêu tham số (26 runs, 0 transition). |
-| [`test.parquet`](test.parquet) | Parquet | 7,538 | ~1.13 MB | Tập **Kiểm thử (Test)** chính (20 runs, 0 transition, freeze evaluation). |
-| [`transition.parquet`](transition.parquet) | Parquet | 576 | ~152 KB | Tập **Cửa sổ chuyển tiếp (Transition)** độc lập để đo độ trễ phát hiện thời gian thực (Time-to-First-Alert). |
-| [`split_manifest.csv`](split_manifest.csv) | CSV | 156 | ~6.7 KB | Bảng ánh xạ phân vùng Run-level cho toàn bộ 156 runs. |
-| [`dataset_manifest.json`](dataset_manifest.json) | JSON | - | ~4.9 KB | Metadata chi tiết, đặc tả 3 Feature Views và các báo cáo nhãn. |
+The framework couples **PX4 SITL / Gazebo Garden** flight simulation, **MAVLink** command-and-control telemetry, and **Containernet** software-defined network emulation. The digital twin is calibrated across four layers against public, peer-reviewed empirical UAV flight campaigns (AERPAW Dataset-32, AERPAW AFAR, AERPAW AADM, Pawprints 4G, and Ericsson 5G NSA).
 
 ---
 
-## 2. PHÂN VÙNG DỮ LIỆU (RUN-LEVEL STRATIFIED PARTITION)
+## 1. System Architecture: 4-Layer Calibration Pipeline
 
-Dữ liệu được chia theo cấp độ Run (Run-Level Split) để triệt tiêu hoàn toàn rò rỉ thời gian giữa các cửa sổ liền kề:
+```mermaid
+flowchart TD
+    subgraph L1["Layer 1: Empirical RF Path Loss"]
+        D32["AERPAW Dataset-32 (3.4 GHz)"] --> P2_D32["P2_prepare_dataset32.py"]
+        P2_D32 --> P3_D32["P3_layer1_dataset32.py (LOFO Fit)"]
+        A2G["A2G CIR (3.6 GHz)"] --> P2_A2G["P2_prepare_a2g36.py"]
+    end
 
-```
-[ Toàn bộ 59,380 Cửa Sổ (156 Runs) ]
-   │
-   ├── [ 576 Transition Windows ] ──────────► transition.parquet (Đo Detection Delay)
-   │
-   └── [ 58,804 Normal Evaluation Windows ]
-         ├── Train (70%): 41,426 windows (110 runs) ──► train.parquet
-         ├── Val   (15%):  9,840 windows (26 runs)  ──► val.parquet
-         └── Test  (15%):  7,538 windows (20 runs)  ──► test.parquet
-```
+    subgraph L2["Layer 2: Kinematic & Trajectory Calibration"]
+        AFAR["AERPAW AFAR Real GPS Traces"] --> P4_MOB["P4_layer2_mobility.py"]
+        P4_MOB --> P14_CAL["P14_calibrate_layer2_mobility.py (Gauss-Markov)"]
+        P14_CAL --> WP_GEN["Seeded Waypoints (F1, F4, F7)"]
+    end
 
----
+    subgraph L3["Layer 3: Dynamic Channel-Link Emulation"]
+        P3_D32 --> P5_LINK["P5_layer3_link.py"]
+        P5_LINK --> TC_NETEM["Containernet / Linux tc-netem (Qdisc Profiles)"]
+        TC_NETEM --> SCENARIOS["Scenarios: C1 (LOS), C2 (Moderate), C3 (NLOS), C4 (Dynamic)"]
+    end
 
-## 3. CÁC HỆ THỐNG NHÃN (LABEL SCHEMES)
+    subgraph L4["Layer 4: SITL Emulation & Attack Injection"]
+        WP_GEN --> PX4_SITL["PX4 SITL + Gazebo Garden (gz_x500)"]
+        SCENARIOS --> PX4_SITL
+        PX4_SITL <--> MAV_ROUTER["mavlink-router (C2 MAVLink UDP)"]
+        MAV_ROUTER <--> GCS["GCS MAVSDK Controller"]
+        ATTACK["P8: T4_DoS UDP Flood Attack"] -.->|Inject| MAV_ROUTER
+    end
 
-### A. Nhị phân (Binary IDS - Track E1)
-* `label_binary`: `0` (Benign - 41,812 windows) | `1` (Attack - 17,568 windows).
-
-### B. 6 Nhãn Chi Tiết (Fine-grained - Track E2)
-* `label_attack`: `FLOOD` (2,928), `REPLAY` (2,928), `FDI_GCS_STATE_SPOOF` (2,928), `FDI_GCS_POSITION_DRIFT` (2,928), `C2_DEGRADATION` (2,928), `MAVLINK_ANOMALY` (2,928), `BENIGN` (41,812).
-
-### C. 5 Nhóm Họ Tấn Công (Coarse-grained Families - Track E3.1 LOGO)
-* Gộp `FDI_GCS_STATE_SPOOF` + `FDI_GCS_POSITION_DRIFT` $\rightarrow$ họ **`FDI`** (5,856 windows).
-* 5 họ: `FLOOD`, `REPLAY`, `FDI`, `C2_DEGRADATION`, `MAVLINK_ANOMALY`.
-
----
-
-## 4. BA KHÔNG GIAN ĐẶC TRƯNG (FEATURE VIEWS)
-
-1. **$X_{\text{baseline}}$ (32 đặc trưng)**: Đặc trưng lưu lượng mạng, IAT, MAVLink syntax và Telemetry chuẩn (đã bỏ `temperature_delta` 100% NaN).
-2. **$X_{\text{pruned}}$ (24 đặc trưng - Compact Set)**: Bộ đặc trưng tinh gọn loại bỏ hằng số và cộng tuyến, tối ưu cho UAV Edge Computer:
-   * *Traffic Dynamics (8)*: `packet_rate`, `byte_rate`, `pkt_len_mean`, `pkt_len_std`, `iat_mean`, `iat_std`, `iat_max`, `iat_p95`.
-   * *MAVLink Semantics (8)*: `mavlink_msg_rate`, `mavlink_unique_msg_count`, `mavlink_msg_entropy`, `mavlink_seq_gap_mean`, `mavlink_seq_gap_std`, `mavlink_duplicate_seq_ratio`, `mavlink_command_rate`, `gcs_to_uav_ratio`.
-   * *UAV Kinematics (8)*: `altitude_mean`, `altitude_std`, `speed_mean`, `speed_std`, `roll_abs_mean`, `pitch_abs_mean`, `yaw_rate_mean`, `battery_delta`.
-3. **$X_{\text{extended}}$ (34 đặc trưng)**: $X_{\text{baseline}}$ bổ sung 2 đặc trưng ngữ nghĩa GCS có thông tin: `landed_state_on_ground_ratio`, `position_altitude_drift_rate` (loại bỏ 2 trường hằng số std=0: `landed_state_transition_count`, `landed_vs_motion_inconsistency`).
-
----
-
-## 5. DANH SÁCH TOÀN BỘ 23 CỘT CẤM ĐƯA VÀO MA TRẬN ĐẦU VÀO X (ANTI-LEAKAGE BLACKLIST)
-
-Để ngăn chặn tuyệt đối **rò rỉ dữ liệu (Data Leakage)** và **học đường tắt (Shortcut Learning)**, khi huấn luyện và kiểm thử bất kỳ mô hình Machine Learning nào, bạn loại bỏ các cột sau đây ra khỏi ma trận đầu vào $X$:
-
-### 📌 Danh Sách 23 Cột Cấm Dưới Dạng Mảng Python (Copy-Paste Sẵn):
-```python
-EXCLUDED_COLUMNS = [
-    # 1. Rò rỉ Ground-Truth & Nhãn Mục Tiêu (6 cột)
-    "attack_overlap_ratio",
-    "label_binary",
-    "label_attack",
-    "attack_type",
-    "attack_variant",
-    "severity",
-
-    # 2. Metadata Định Danh Thực Nghiệm (8 cột)
-    "run_id",
-    "scenario_id",
-    "seed",
-    "split",
-    "window_index",
-    "n_windows",
-    "capture_vantage",
-    "capture_port",
-
-    # 3. Mốc Thời Gian Tuyệt Đối (2 cột)
-    "window_start_epoch",
-    "window_end_epoch",
-
-    # 4. Cờ Trạng Thái Cửa Sổ & Pipeline Internal QC (7 cột)
-    "transition",
-    "edge_window",
-    "telemetry_interpolated",
-    "telemetry_stale",
-    "n_telemetry_rows",
-    "n_mavlink_decoded",
-    "n_mavlink_failed"
-]
+    subgraph EVAL["Evaluation & Feature Extraction"]
+        PX4_SITL --> CAMPAIGN["120 Runs (PCAP, Telemetry, Events)"]
+        CAMPAIGN --> P9["P9_dataset_schema.py (Window Views)"]
+        CAMPAIGN --> KAGGLE["Kaggle Baseline: test.ipynb / UAV_C2_Baseline_Kaggle.ipynb"]
+        KAGGLE --> METRICS["Leave-One-Mission-Out (LOMO) Results"]
+    end
 ```
 
-### 📋 Bảng Chi Tiết Từng Cột Và Lý Do Bắt Buộc Loại Bỏ:
-
-| STT | Tên Cột | Kiểu Dữ Liệu | Nhóm Phân Loại | Lý Do Bắt Buộc Loại Khỏi Ma Trận Đầu Vào $X$ |
-| :---: | :--- | :---: | :--- | :--- |
-| **1** | `attack_overlap_ratio` | `float64` | Rò rỉ Ground-Truth | **CỰC KỲ NGUY HIỂM**: Tỷ lệ giao thoa thời gian với cuộc tấn công ($0.0$ ở Benign, $>0.0$ ở Attack). Nếu đưa vào $X$, mô hình sẽ dùng cột này làm đường tắt (shortcut) gian lận nhãn thay vì học bản chất lưu lượng/kinematics. |
-| **2** | `label_binary` | `int64` | Nhãn mục tiêu | Nhãn mục tiêu của bài toán phân loại nhị phân ($0$: Normal, $1$: Attack). |
-| **3** | `label_attack` | `string` | Nhãn mục tiêu | Nhãn mục tiêu của bài toán phân loại 6 lớp tấn công chi tiết. |
-| **4** | `attack_type` | `string` | Nhãn thực nghiệm | Nhãn họ tấn công gốc được cấu hình từ kịch bản thực nghiệm. |
-| **5** | `attack_variant` | `string` | Nhãn thực nghiệm | Tên biến thể tấn công chi tiết (`alt_drift_slow`, `state_arm_spoof`...). |
-| **6** | `severity` | `string` | Nhãn thực nghiệm | Mức độ cường độ tấn công (`low`, `medium`, `high`). |
-| **7** | `run_id` | `string` | Metadata định danh | Mã chuyến bay (`RUN_00001`...). Model sẽ học vẹt ID nếu đưa vào. |
-| **8** | `scenario_id` | `string` | Metadata kịch bản | Mã kịch bản bay định trước (`S01`, `S02`, `S03`, `S04`). |
-| **9** | `seed` | `int64` | Metadata thực nghiệm | Hạt giống ngẫu nhiên của lần chạy. |
-| **10** | `split` | `string` | Metadata phân vùng | Nhãn phân vùng dữ liệu (`train`, `val`, `test`, `transition`). |
-| **11** | `window_index` | `int64` | Metadata thời gian | Thứ tự thời gian của cửa sổ trong chuyến bay. |
-| **12** | `n_windows` | `int64` | Metadata thực nghiệm | Tổng số cửa sổ của chuyến bay. |
-| **13** | `capture_vantage` | `string` | Metadata cảm biến | Điểm đặt cảm biến thu thập (`gcs_side` - hằng số). |
-| **14** | `capture_port` | `int64` | Metadata mạng | Cổng mạng thu thập (cổng UDP 14550 / 14551). |
-| **15** | `window_start_epoch` | `float64` | Mốc thời gian | Timestamp Unix tuyệt đối theo giây của host. Model có thể ghi nhớ thời điểm thực diễn ra tấn công. |
-| **16** | `window_end_epoch` | `float64` | Mốc thời gian | Timestamp kết thúc cửa sổ. |
-| **17** | `transition` | `bool` | Cờ trạng thái cửa sổ | Cờ đánh dấu cửa sổ chuyển tiếp ranh giới. Dùng để tách bài test đo độ trễ riêng, không làm đặc trưng. |
-| **18** | `edge_window` | `bool` | Cờ trạng thái cửa sổ | Cờ đánh dấu cửa sổ rìa đầu/cuối của chuyến bay. |
-| **19** | `telemetry_interpolated` | `bool` | Pipeline QC nội bộ | Cờ trạng thái nội suy telemetry (QC nội bộ). |
-| **20** | `telemetry_stale` | `bool` | Pipeline QC nội bộ | Cờ cảnh báo telemetry trễ hơn 400ms (QC nội bộ). |
-| **21** | `n_telemetry_rows` | `int64` | Pipeline QC nội bộ | Số mẫu telemetry thu được trong 1 giây (metadata kiểm định). |
-| **22** | `n_mavlink_decoded` | `int64` | Pipeline QC nội bộ | Số gói tin MAVLink giải mã thành công (metadata kiểm định). |
-| **23** | `n_mavlink_failed` | `int64` | Pipeline QC nội bộ | Số gói tin MAVLink bị lỗi giải mã (metadata kiểm định). |
-
-> **Quy Tắc Vàng**: Ma trận đầu vào $X$ **CHỈ ĐƯỢC PHÉP CHỨA** các cột đặc trưng nằm trong 1 trong 3 Feature Views được định nghĩa tại Phần 4 ($X_{\text{baseline}}: 32$, $X_{\text{pruned}}: 24$, hoặc $X_{\text{extended}}: 34$). Toàn bộ 23 cột trên chỉ dùng làm nhãn mục tiêu $y$ hoặc metadata kiểm định sau dự đoán.
+### Layer Details:
+- **Layer 1 (RF Propagation Calibration)**: Empirical distance-dependent log-distance path loss calibrated from AERPAW Dataset-32 ($n \approx 2.578$, $\beta = 25.78$ dB/decade) under Leave-One-Flight-Out validation, with cross-domain comparative checks against 3.6 GHz CIR.
+- **Layer 2 (Mobility & Kinematics)**: Real-world GPS waypoint sequences from AERPAW AFAR testbed flights. Velocity dynamics fitted via a Gauss-Markov autoregressive process ($\alpha = 0.970$, $\mu = 3.05$ m/s, $\sigma = 0.438$ m/s) with 95th-percentile corner turn-rate speed caps.
+- **Layer 3 (Channel & Network Emulation)**: Software-defined link emulation in Containernet using Linux `tc/netem` to enforce four propagation regimes (`C1_LOS`, `C2_Moderate`, `C3_NLOS`, `C4_Dynamic`).
+- **Layer 4 (Cyber-Physical SITL & Traffic Generation)**: PX4 Autopilot SITL (`HEADLESS=1 make px4_sitl gz_x500`) coupled with MAVSDK ground station control, `mavlink-router`, and in-path C2 attack injection (T0 Benign vs. T4 DoS flood).
 
 ---
 
-## 6. HƯỚNG DẪN NẠP DỮ LIỆU NHANH TRONG PYTHON
+## 2. Experimental Campaign Matrix (120 Runs)
 
-### Cách 1: Nạp Đặc Trưng Theo Feature View Cụ Thể (Khuyên Dùng)
-```python
-import pandas as pd
-import json
+The multi-run campaign executes a balanced $3 \times 4 \times 2 \times 5 = 120$ factor design:
 
-# 1. Đọc dữ liệu phân vùng sạch
-train_df = pd.read_parquet("train.parquet")
-test_df  = pd.read_parquet("test.parquet")
+| Factor | Values | Description |
+| :--- | :---: | :--- |
+| **Missions ($N=3$)** | `F1`, `F4`, `F7` | AFAR real-world GPS waypoint routes (distinct flight geometries) |
+| **Channel Scenarios ($N=4$)** | `C1_LOS`, `C2_Moderate`, `C3_NLOS`, `C4_Dynamic` | Physics-calibrated link degradation and shadowing conditions |
+| **Traffic Classes ($N=2$)** | `T0_Benign`, `T4_DoS` | Nominal C2 telemetry/commands vs. targeted UDP flood on GCS endpoint |
+| **Seeds ($N=5$)** | `s1`, `s2`, `s3`, `s4`, `s5` | Random seed controlling Gauss-Markov speeds, offsets, and packet timing |
 
-# 2. Đọc danh sách đặc trưng từ manifest
-with open("dataset_manifest.json") as f:
-    manifest = json.load(f)
+---
 
-# Chọn Feature View muốn dùng: 'X_baseline' (32), 'X_pruned' (24), hoặc 'X_extended' (34)
-feature_cols = manifest["feature_views"]["X_pruned"]["features"]
+## 3. Repository Directory Structure
 
-# 3. Tách ma trận đầu vào X và nhãn y
-X_train = train_df[feature_cols]
-y_train = train_df["label_binary"]
-
-X_test  = test_df[feature_cols]
-y_test  = test_df["label_binary"]
-
-print(f"X_train shape: {X_train.shape}, y_train shape: {y_train.shape}")
-print(f"X_test shape:  {X_test.shape},  y_test shape:  {y_test.shape}")
+```text
+uav_c2_ids/
+├── src/                                  # Pipeline source code
+│   ├── pipeline/                         # Four-layer calibration & emulation modules
+│   │   ├── P2_prepare_dataset32.py       # Layer 1: Dataset-32 extractor & provenance
+│   │   ├── P3_layer1_dataset32.py        # Layer 1: Log-distance path loss fitting
+│   │   ├── P4_layer2_mobility.py         # Layer 2: AFAR GPS trace normalization
+│   │   ├── P14_calibrate_layer2_mobility.py # Layer 2: Gauss-Markov velocity calibration
+│   │   ├── P5_layer3_link.py             # Layer 3: Dynamic tc/netem link configuration
+│   │   ├── P7_sitl_c2_twin.py            # Layer 4: PX4 SITL + Gazebo Garden C2 twin
+│   │   ├── P8_run_campaign.py            # Layer 4: Multi-run campaign orchestrator
+│   │   ├── P9_dataset_schema.py          # Windowed feature and schema extractor
+│   │   ├── P10_ids.py                    # IDS evaluation script
+│   │   ├── Dockerfile.sitl               # Container image definition for PX4/Gazebo SITL
+│   │   ├── run_all.sh                    # Automated end-to-end execution pipeline
+│   │   └── scripts/                      # MAVSDK mission runner and manifest utilities
+│   └── monitor.py                        # Terminal-based campaign execution monitor
+├── data/                                 # Calibrated artifacts and trajectory data
+│   ├── missions/                         # 15 normalized AFAR GPS waypoint traces (.csv)
+│   ├── model_fits/                       # Fitted Layer 1-3 parameter cards (.json)
+│   ├── processed/                        # Processed empirical dataset extracts
+│   │   ├── dataset32/                    # AERPAW Dataset-32 path loss table & manifest
+│   │   ├── aerpaw5g/                     # AERPAW 5G NSA KPIs & manifest
+│   │   └── pawprints4g/                  # Pawprints 4G LTE KPIs & manifest
+│   └── campaign_results/                 # Documentation & link to 120-run raw PCAP archive
+├── config/                               # RF channel sounding & antenna configurations
+│   ├── a2g_500m/                         # Air-to-ground 500m link configurations
+│   ├── f2f/                              # Flight-to-flight configurations
+│   └── power_cal_data.csv                # USRP power calibration reference
+├── test.ipynb                            # Kaggle baseline evaluation notebook (executed outputs)
+├── UAV_C2_Baseline_Kaggle.ipynb          # End-to-end Kaggle baseline ML notebook
+├── model_metrics.csv                     # Model evaluation metrics across all folds
+├── model_metrics_per_fold.csv            # Detailed fold-level metrics (F1, F4, F7 held out)
+├── model_metrics_summary.csv             # Aggregated mean and std metrics per model
+├── tree_feature_importance_mean.csv      # Feature importance rankings
+├── split_manifest.json                   # Partition manifest for reproducible LOMO splits
+├── oof_predictions.csv.gz                # Out-of-fold predictions (gzip compressed)
+├── testplan.txt                          # Experimental test plan specification
+├── replan.txt                            # Digital twin architecture & calibration specification
+├── audit_data.py                         # Comprehensive campaign audit script
+├── test_data_quality.py                  # PCAP & telemetry integrity verification
+└── generate_final_report.py              # Campaign statistical summary generator
 ```
 
-### Cách 2: Loại Bỏ Toàn Bộ 23 Cột Cấm Bằng Danh Sách `EXCLUDED_COLUMNS`
-```python
-import pandas as pd
+---
 
-train_df = pd.read_parquet("train.parquet")
+## 4. Baseline Machine Learning Evaluation (Kaggle)
 
-EXCLUDED_COLUMNS = [
-    "attack_overlap_ratio", "label_binary", "label_attack", "attack_type",
-    "attack_variant", "severity", "run_id", "scenario_id", "seed", "split",
-    "window_index", "n_windows", "capture_vantage", "capture_port",
-    "window_start_epoch", "window_end_epoch", "transition", "edge_window",
-    "telemetry_interpolated", "telemetry_stale", "n_telemetry_rows",
-    "n_mavlink_decoded", "n_mavlink_failed"
-]
+Models are evaluated using **Leave-One-Mission-Out (LOMO)** cross-validation on 1-second non-overlapping time windows extracted from the C2 packet captures. In each fold, an entire flight mission (`F1`, `F4`, or `F7`) is completely held out as the test set:
 
-# Tách toàn bộ đặc trưng còn lại (36 đặc trưng ứng viên)
-X_train_all = train_df.drop(columns=EXCLUDED_COLUMNS)
-y_train = train_df["label_binary"]
+### Benchmark Summary (Primary 1-Second Window LOMO Evaluation)
 
-print(f"Features count: {X_train_all.shape[1]}") # Đúng 36 features
+| Model | Balanced Acc (Mean ± Std) | Macro-F1 (Mean ± Std) | DoS F1 (Mean ± Std) | PR-AUC (Mean ± Std) | ROC-AUC (Mean ± Std) | Latency (ms/win) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **HistGradientBoosting** | **0.450 ± 0.104** | **0.426 ± 0.140** | **0.438 ± 0.171** | **0.434 ± 0.239** | 0.393 ± 0.188 | 0.0065 ms |
+| **RandomForest** | 0.440 ± 0.105 | 0.417 ± 0.138 | 0.425 ± 0.172 | 0.437 ± 0.243 | **0.399 ± 0.179** | 0.0116 ms |
+| **ExtraTrees** | 0.439 ± 0.110 | 0.413 ± 0.134 | 0.443 ± 0.196 | **0.440 ± 0.246** | 0.397 ± 0.198 | 0.0119 ms |
+| **DecisionTree** | 0.426 ± 0.092 | 0.390 ± 0.115 | 0.460 ± 0.194 | 0.417 ± 0.223 | 0.405 ± 0.174 | 0.0007 ms |
+| **LogisticRegression** | 0.433 ± 0.097 | 0.366 ± 0.107 | 0.505 ± 0.216 | 0.429 ± 0.229 | 0.381 ± 0.186 | 0.0008 ms |
+| **GaussianNB** | 0.370 ± 0.148 | 0.290 ± 0.053 | 0.444 ± 0.339 | 0.401 ± 0.211 | 0.373 ± 0.151 | 0.0013 ms |
+| *Dummy (Most Frequent)* | 0.500 ± 0.000 | 0.282 ± 0.071 | 0.134 ± 0.233 | 0.433 ± 0.159 | 0.500 ± 0.000 | 0.0006 ms |
+
+> **Key Finding**: LOMO evaluation demonstrates that when an entire flight mission profile is held out, tree-based ensemble models (HistGradientBoosting, RandomForest, ExtraTrees) exhibit more robust cross-mission generalization than linear or naive Bayes classifiers.
+
+---
+
+## 5. Quickstart & Reproduction
+
+### Option A: Run Baseline ML on Kaggle
+1. Upload or attach the dataset: [nguyen273mmb/uav-c2-pcap](https://www.kaggle.com/datasets/nguyen273mmb/uav-c2-pcap).
+2. Open [`test.ipynb`](test.ipynb) or [`UAV_C2_Baseline_Kaggle.ipynb`](UAV_C2_Baseline_Kaggle.ipynb).
+3. Run all cells to replicate the feature pruning, model training, and LOMO evaluation metrics.
+
+### Option B: Decompress Out-of-Fold Predictions
+The full out-of-fold prediction table (`oof_predictions.csv`, 210 MB) is provided in compressed format (`oof_predictions.csv.gz`, 9.7 MB):
+```bash
+gzip -dk oof_predictions.csv.gz
 ```
+
+### Option C: Reproduce the Calibration Pipeline Locally (Linux / WSL2)
+1. Install Python dependencies:
+   ```bash
+   pip install -r src/pipeline/requirements.txt
+   ```
+2. Run Layer 1 & Layer 2 calibrations:
+   ```bash
+   python src/pipeline/P2_prepare_dataset32.py --output_dir data/processed/dataset32
+   python src/pipeline/P3_layer1_dataset32.py --input_csv data/processed/dataset32/dataset32_pathloss.csv --output_dir data/model_fits
+   python src/pipeline/P14_calibrate_layer2_mobility.py --missions_dir data/missions --output_dir data/model_fits
+   ```
+3. To run the full SITL simulation campaign (requires Docker, PX4 SITL, and Containernet):
+   ```bash
+   docker build -t uav-cas-sitl:latest -f src/pipeline/Dockerfile.sitl .
+   bash src/pipeline/run_all.sh
+   ```
+
+### Option D: Audit Campaign Quality
+Validate PCAP packet counts, telemetry timestamp alignment, and attack interval overlaps across all runs:
+```bash
+python audit_data.py
+python test_data_quality.py
+```
+
+---
+
+## 6. Scientific References
+
+1. **AERPAW Dataset-32**: Air-to-Ground Channel Sounding and Path Loss Measurements at 3.4 GHz with Linear and Zigzag UAV Trajectories (AERPAW Consortium, 2024).
+2. **AERPAW AFAR Challenge**: Collection of UAV-Based RSS Measurements From the AFAR Challenge in Digital Twin and Real-World Environments (IEEE Data Descriptions, 2025).
+3. **AERPAW AADM Challenge**: Autonomous Data Mule Challenge in Digital Twin and Real-World Environments (Dataset-30, arXiv:2602.16163).
+4. **PX4 Autopilot**: An Open-Source Flight Control System for Autonomous Vehicles ([px4.io](https://px4.io/)).
+
+---
+
+## 7. License
+
+This repository is distributed under the Apache License 2.0. See [`LICENSE`](LICENSE) for details.

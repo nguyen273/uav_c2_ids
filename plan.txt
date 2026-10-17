@@ -1,0 +1,682 @@
+KẾ HOẠCH NGHIÊN CỨU
+
+Đề tài: Xây dựng bộ dữ liệu tấn công kênh truyền C2 của UAV bằng digital twin được hiệu chỉnh theo dữ liệu AERPAW
+Phiên bản cập nhật theo nội dung plan2.txt do người dùng cung cấp.
+
+CHỈ ĐẠO PHẠM VI HIỆN HÀNH (2026-10-04): Twin sẽ vận hành hoàn toàn trong mô phỏng/emulation; đề tài không yêu cầu tự tổ chức chuyến bay UAV thật. Dữ liệu đo thực công khai được dùng làm reference để hiệu chỉnh/đối chiếu từng layer phù hợp. Vì vậy, không cần paired run UAV thật–twin của chính nhóm để hoàn tất mục tiêu hiện tại. Tuy nhiên, chỉ gọi là “measurement-calibrated” cho đúng layer và miền dữ liệu có evidence fit/holdout; không gọi end-to-end C2 link calibrated hoặc physical-equivalent nếu qdisc vẫn giả định và chưa đối chiếu với KPI C2 thực tương thích. Mục 4.6 ở cuối file là bản chuẩn mới nhất và ghi đè các câu cũ yêu cầu field flight/paired own-field validation.
+
+1. ĐỊNH HƯỚNG VÀ ĐÓNG GÓP
+
+Mục tiêu là tạo bộ dữ liệu cyber-physical có nhãn về lưu lượng điều khiển/giám sát giữa Ground Control Station (GCS) và UAV qua MAVLink/IP. Nền tảng dự kiến gồm PX4 SITL, Gazebo, GCS/MAVSDK/QGroundControl, Containernet/Linux, tc/netem, bộ phát sinh tấn công và bộ giám sát. Hiệu chỉnh bằng dữ liệu bay/vô tuyến AERPAW trước khi sinh attack dataset.
+
+Cách định vị đóng góp: “Measurement-calibrated PX4/MAVLink UAV C2 digital twin adapted from the UAV-CAS calibration methodology.” Có thể khẳng định tương đồng ở phương pháp emulation/calibration nhiều lớp, nhưng không tuyên bố tương đương toàn hệ thống UAV-CAS. UAV-CAS tập trung mạng swarm, flow/IP và traffic HTTP/NGINX; đề tài tập trung UAV–GCS C2, MAVLink, trạng thái bay và dấu vết cyber-physical. Không so sánh IDS accuracy của hai bộ như cùng benchmark.
+
+Nguồn phương pháp: S. Mishra, B. Bhargava, Z. Liu, S. Islam, “UAV-CAS: A Calibrated Digital-Twin Dataset for Intrusion Detection in UAV Swarm Networks,” arXiv:2606.17845, 2026. Dùng làm cơ sở Containernet/Linux, hiệu chỉnh propagation/mobility/link/end-to-end và phân tích giới hạn mô hình hóa kênh.
+
+2. MỤC TIÊU VÀ CÂU HỎI
+
+Mục tiêu cụ thể:
+- Hiệu chỉnh propagation, mobility, link quality và fidelity đầu-cuối bằng campaign AERPAW.
+- Kết nối PX4 SITL/Gazebo với MAVLink, GCS và Containernet/Linux; áp impairment bằng tc/netem.
+- Sinh Benign và bốn họ tấn công C2: Replay; FDI/command injection; MITM/proxy modification; DoS/flood.
+- Ghi đồng bộ PCAP, MAVLink decoded, PX4 ULog/telemetry, channel trace, attack events và ground truth trạng thái bay.
+- Đánh giá IDS ở phát hiện nhị phân, phân loại nhiều lớp, khả năng tổng quát hóa; tùy tài nguyên đánh giá triển khai edge.
+
+Câu hỏi nghiên cứu:
+RQ1: Phương pháp calibration nhiều lớp UAV-CAS chuyển sang twin PX4/MAVLink C2 đến mức nào?
+RQ2: Twin tái tạo được đặc tính nào từ đo đạc UAV (altitude, mobility, RSS/RSRP/SNR, link behavior, thống kê traffic), sai số là bao nhiêu?
+RQ3: Replay, FDI/injection, MITM và DoS/flood tác động thế nào đến packet, lệnh MAVLink và trạng thái bay?
+RQ4: IDS phân biệt được bất thường tấn công với dao động kênh LOS/NLOS/suy giảm mạng không?
+RQ5: Hiệu năng thay đổi ra sao trên mission, channel, seed hoặc attack variant chưa thấy trong train?
+
+3. PHẠM VI VÀ KIẾN TRÚC
+
+Lớp bay: PX4 SITL + Gazebo, mission/trajectory, vị trí, attitude, telemetry.
+Lớp C2: GCS ↔ MAVLink Router/MAVSDK ↔ UAV; ghi command, mission item, ACK, sequence, heartbeat, telemetry.
+Lớp mạng: Containernet/Docker/Linux namespace, Linux TCP/IP; attacker và IDS monitor là node riêng.
+Lớp kênh: A2G/link quality được hiệu chỉnh; tc/netem áp delay, loss, rate và biến thiên theo thời gian.
+Lớp quan sát: PCAP tại các điểm đo, MAVLink decoded, PX4 ULog, channel trace, mission state, attack timeline, manifest.
+
+Phân biệt thuật ngữ:
+- Physical reference: AERPAW Lake Wheeler và phép đo/campaign thực địa.
+- UAV-CAS: digital twin Containernet đã hiệu chỉnh, không phải physical RF testbed.
+- Twin đề tài: PX4 SITL/Gazebo + MAVLink + Containernet/Linux + channel impairment; là testbed emulation/cyber-physical twin, không phải UAV thật.
+
+So sánh với UAV-CAS: tương đồng cần chứng minh gồm Containernet, Linux stack, container, channel abstraction, mobility, tc/netem, PCAP và fidelity nhiều lớp. Khác biệt chủ đích: swarm/network IDS với HTTP/NGINX ở UAV-CAS so với UAV–GCS C2/MAVLink và flight telemetry ở đề tài này.
+
+4. DỮ LIỆU THAM CHIẾU VÀ VAI TRÒ
+
+4.1 Maeng — fit propagation thực nghiệm
+S. J. Maeng, H. Kwon, O. Ozdemir, I. Guvenc, “Impact of 3-D Antenna Radiation Pattern in UAV Air-to-Ground Path Loss Modeling and RSRP-Based Localization in Rural Area,” IEEE Open Journal of Antennas and Propagation, vol. 4, pp. 1029–1043, 2023. DOI: 10.1109/OJAP.2023.3322145.
+Dataset companion: S. J. Maeng et al., “LTE I/Q Data Set for UAV Propagation Modeling, Communication, and Navigation Research,” IEEE Communications Magazine, 2023. DOI: 10.1109/MCOM.005.2200784; arXiv:2303.01635.
+Maeng là nguồn thay thế nếu truy cập được, nhưng không phải dữ liệu bắt buộc của Layer 1 trong phương án hiện tại. Nếu không tải được thì không đưa vào pipeline thực nghiệm. Các thông tin 3.51 GHz và 5 mức altitude trong plan2 chỉ áp dụng cho campaign Maeng, không gán cho Gürses.
+
+4.2 AFAR — mobility, RSS/link và DT so với thực địa
+Dataset: “AERPAW Find-a-Rover (AFAR) Challenge in December 2023,” Dryad, DOI: 10.5061/dryad.18931zd4g.
+Bài: B. Chatterjee et al., “Wireless Signal Source Localization by Unmanned Aerial Vehicle Using AERPAW Digital Twin and Testbed,” Proc. IFIP Networking 2024. DOI: 10.23919/IFIPNetworking62109.2024.10619824.
+Liên quan: P. S. Kudyba, Q. Lu, H. Sun, “Bayesian Optimization for Fast Radio Mapping and Localization with an Autonomous Aerial Drone,” IEEE VTC2024-Fall. DOI: 10.1109/VTC2024-Fall63153.2024.10757589; S. Masrur, I. Guvenc, “Bridging Simulation and Reality: A 3D Clustering-Based Deep Learning Model for UAV-Based RF Source Localization,” IEEE ICC Workshops 2025, pp. 953–958. DOI: 10.1109/ICCWorkshops67674.2025.11162478.
+Dùng chính yếu cho Layer 2: GPS/altitude/heading/trajectory; đồng thời có thể dùng power log ở Layer 1 như kiểm tra chéo phụ. Ghi tách nguồn phát triển-DT và testbed thực địa. AFAR là tìm RF-emitting UGV; không gọi profile tổng quát là campaign AFAR. Nếu power log AFAR được dùng để tune mô hình Layer 1 thì không dùng chính log đó để tuyên bố external validation độc lập.
+
+4.3 AADM — mobility, SNR và hiệu năng dữ liệu
+M. S. Hossen et al., “Collection: UAV-Based Wireless Multi-Modal Measurements From AERPAW Autonomous Data Mule (AADM) Challenge in Digital Twin and Real-World Environments,” IEEE Data Descriptions, vol. 3, pp. 354–366, 2026. DOI: 10.1109/IEEEDATA.2026.3685296. Dataset Dryad DOI: 10.5061/dryad.7d7wm3898.
+Liên quan: J. J. Sadique, M. R. Khan, A. S. Ibrahim, “UAV-aided Fast Data Collection via Machine Learning Using AERPAW’s Digital Twin,” WiNTECH 2025, pp. 89–96. DOI: 10.1145/3737895.3768305; Sadaf Javed et al., “Autonomous UAV Trajectory Design and Evaluation for Data Muling in AERPAW Digital Twin,” IEEE ICC 2026.
+Dùng cho trajectory, altitude/speed/orientation, SNR, cumulative download, controller behavior và DT–testbed. Nội dung plan2 nêu 45 DT flights, 33 physical flights, 11 teams × 3 flights, 4 BS; kiểm tra dataset README/version trước khi trích số liệu chính thức.
+
+4.4 Gürses–Sichitiu — nguồn hiệu chỉnh Layer 1 trong phương án hiện tại
+A. Gürses, M. L. Sichitiu, “Air-to-Ground Channel Modeling for UAVs in Rural Areas,” Proc. IEEE VTC2024-Fall, pp. 1–6. DOI: 10.1109/VTC2024-Fall63153.2024.10757825.
+Dataset “AERPAW air-to-ground channel sounding and path loss measurement with a UAV at 3.4 GHz,” Dryad DOI: 10.5061/dryad.2ngf1vj4r.
+Khi không tải được Maeng, ưu tiên Dataset-19 (Dryad 7h44j105p) nếu có thể xử lý raw I/Q; nó có nhiều altitude/frequency flight. Dataset-32 là thay thế gọn hơn nếu có CSV/NPZ đã xử lý. Không gọi nguồn fit là hold-out độc lập.
+
+4.5 RL-AERPAW-DT Dataset-34 — 3D/ray-tracing và LOS/NLOS
+AERPAW, “Dataset-34: Reinforcement Learning with 3D UAV Network Digital Twin (RL-AERPAW-DT),” 2026; https://aerpaw.org/dataset/dataset-34-reinforcement-learning-with-3d-uav-network-digital-twin-rl-aerpaw-dt/; mã nguồn https://github.com/EverettTucker471/RL-AERPAW-DT.
+Bài sử dụng được liệt kê: J. Huang, E. Tucker, R. Yu, Y. Liu, “Twin-Guided Meta Learning for Generalizable UAV Trajectory Planning in Low-Altitude Wireless Networks,” IEEE ICCCN 2026. DOI: 10.1109/ICCCN69946.2026.11662747; Z. Yao, “Belief aware manifold robust control for wireless channel optimization in UAV mounted intelligent reflecting surface systems,” Discover Artificial Intelligence, 2026. DOI: 10.1007/s44163-026-01737-8.
+Dùng cho scene 3D/ray tracing/radio map/path gain/RSS/SNR/SINR, blockage và LOS↔NLOS. Đây là tài nguyên mô phỏng, không phải raw RF capture/ground truth vật lý; không thay Maeng/Gürses để fit empirical path loss.
+
+4.6 Bằng chứng trực tiếp cho mission và tấn công C2/MAVLink
+
+K. Highnam, K. Angstadt, K. Leach, W. Weimer, A. Paulos, P. Hurley, “An Uncrewed Aerial Vehicle Attack Scenario and Trustworthy Repair Architecture,” 46th Annual IEEE/IFIP International Conference on Dependable Systems and Networks Workshops (DSN-W), 2016, pp. 222–225. DOI: 10.1109/DSN-W.2016.63.
+Dùng làm bằng chứng cho UAV–GCS/MAVLink, waypoint surveillance/square patrol, malicious MAVLink làm lệch flight plan/heading, bỏ qua waypoint và ảnh hưởng mission completion.
+
+Y.-M. Kwon, J. Yu, B.-M. Cho, Y. Eun, K.-J. Park, “Empirical Analysis of MAVLink Protocol Vulnerability for Attacking Unmanned Aerial Vehicles,” IEEE Access, vol. 6, pp. 43203–43212, 2018. DOI: 10.1109/ACCESS.2018.2863237.
+Dùng cho GCS–MAVLink, packet injection/DoS và can thiệp mission đang chạy.
+
+H. J. Hadi, M. K. Khan, N. Ahmad, “A Real-Time Multi-Tier Machine Learning Intrusion Detection Framework for Securing Ground Control Station–UAV Communications,” IEEE Open Journal of the Communications Society, 2026. DOI: 10.1109/OJCOMS.2026.3683883.
+Dùng làm bối cảnh GCS–UAV testbed, predefined trajectories và attack traffic; không tự gán tên trajectory nếu bài không nêu.
+
+Benchellal et al., “Control-Aware Manipulation of ArduPilot via Legitimate MAVLink Commands: Simulation and Hardware Validation,” arXiv:2606.22289, 2026 (preprint theo nội dung plan2). Dùng supporting evidence về SITL/hardware và thao túng qua lệnh MAVLink, không làm nguồn nền chính.
+
+4.7 Benchmark an ninh bổ sung
+
+Plan2 nêu UAV-NIDD, UAV-GCS IDS và Hassler dataset/công trình làm nguồn tham khảo taxonomy/IDS. Trước khi đưa vào luận văn cần xác minh tiêu đề nguyên văn, tác giả, năm, DOI/URL, quyền sử dụng và xem dữ liệu có thực sự tương ứng UAV–GCS/MAVLink không. Không dùng chúng để hiệu chỉnh vô tuyến nếu không có phép đo phù hợp.
+
+5. TAXONOMY KỊCH BẢN
+
+Không gộp tất cả thành một loại “flight scenario”.
+
+5.1 Mobility/reference profiles cho calibration UAV-CAS (4 profile)
+M1 Spiral; M2 Grid; M3 Hover-transit; M4 Random.
+Đây là canonical mobility abstractions để đối chiếu UAV-CAS và stress-test mobility, không phải bốn campaign AERPAW hay bốn C2 mission chuẩn. Dữ liệu/trace thực được lấy riêng từ Maeng (zig-zag), AFAR (RF-source search/fixed waypoint hoặc autonomous tùy submission), AADM (autonomous data mule).
+Bài tham chiếu: Mishra et al., “UAV-CAS: A Calibrated Digital-Twin Dataset for Intrusion Detection in UAV Swarm Networks,” arXiv:2606.17845 (2026); các campaign tương ứng: Maeng et al. (2023), “AERPAW Find-a-Rover (AFAR) Challenge in December 2023” (Dryad), Hossen et al. (2026), “Collection: UAV-Based Wireless Multi-Modal Measurements From AERPAW Autonomous Data Mule (AADM) Challenge in Digital Twin and Real-World Environments.”
+
+5.2 C2 flight missions tạo dataset (3 mission)
+F1 — Waypoint surveillance/square patrol (core): Takeoff → WP1 → WP2 → WP3 → WP4 → lặp/quan sát → RTL/land. Biến thể A→B→C→D→A tái lập được. Căn cứ: Highnam et al. (2016), “An Uncrewed Aerial Vehicle Attack Scenario and Trustworthy Repair Architecture.”
+F2 — Waypoint navigation/generic route: Takeoff → WP1 → WP2 → WP3 → WP4 → RTL. Kiểm tra mission item/ACK/progression và attack khi mission đang chạy. Căn cứ: Kwon et al. (2018), “Empirical Analysis of MAVLink Protocol Vulnerability for Attacking Unmanned Aerial Vehicles”; MAVLink Mission Protocol.
+F3 — Takeoff → mission → hold/hover → RTL/land (baseline vận hành): có takeoff, cruise/mission, hold và return/landing; phân tích theo mission phase. Đây là baseline vận hành, không tuyên bố là attack benchmark canonical. Tham khảo Hadi et al. (2026), “A Real-Time Multi-Tier Machine Learning Intrusion Detection Framework for Securing Ground Control Station–UAV Communications” và Benchellal et al. (2026, preprint), “Control-Aware Manipulation of ArduPilot via Legitimate MAVLink Commands: Simulation and Hardware Validation.”
+Spiral/Grid/Hover-transit/Random được dùng làm mobility variants ở calibration/robustness, không phải 4 C2 mission classes.
+
+5.3 Điều kiện lưu lượng (5 lớp)
+T0 Benign (đối chứng); T1 Replay; T2 FDI/command injection; T3 MITM/proxy modification; T4 DoS/flood.
+Ground truth tối thiểu: Replay lưu nguồn bản tin, thời gian, sequence/duplicate/stale và tác động; FDI ghi message/field/value trước-sau và state; MITM ghi điểm chặn, forward/modify/drop và độ trễ thêm; DoS ghi tốc độ/volume/thời đoạn, packet drop/queue/delay và ảnh hưởng heartbeat/command/mission.
+Cơ sở: Highnam et al. (MAVLink flight-path manipulation), Kwon et al. (DoS/packet injection), Hadi et al. (GCS-UAV IDS). UAV-NIDD/Hassler chỉ thêm sau xác minh citation. Mọi thí nghiệm tấn công chạy trong SITL/Gazebo hoặc test environment cô lập, không nhắm UAV/mạng bên ngoài.
+
+5.4 Channel conditions (4 lớp, độc lập với attack)
+C1 Good/LOS: ổn định, loss/delay thấp theo calibration.
+C2 Moderate: suy giảm vừa phải từ phân bố/đo phù hợp.
+C3 Poor/NLOS blockage: suy giảm mạnh; Dataset-34 làm physics-informed comparator, hiệu chỉnh thực dùng nguồn đo khi có.
+C4 Time-varying LOS↔NLOS: channel thay đổi theo đường bay/vật cản.
+Không gán channel cố định cho attack class. Benign và mọi attack phải xuất hiện ở channel tương đương để tránh shortcut (model học poor channel = attack).
+Nguồn: Maeng 2023; AFAR dataset; AADM 2026; Gürses & Sichitiu 2024; Dataset-34 RL-AERPAW-DT.
+
+6. MA TRẬN THÍ NGHIỆM
+
+Phase A — Calibration không attack:
+A1 Propagation: ưu tiên fit từ Dataset-19/Gürses sau khi hậu xử lý I/Q, phân tầng theo tần số và độ cao; dùng Dataset-32 nếu cần CSV path_loss_db đã xử lý. Đóng băng mô hình và đánh giá theo flight/frequency group. Nếu dùng AFAR power log, chỉ làm consistency check phù hợp, không gộp thẳng hoặc tune lại trên holdout. Báo cáo setup, miền khoảng cách, độ cao và tần số thực tế.
+A2 Mobility: tạo trace/library từ Maeng, AFAR, AADM; ánh xạ canonical Spiral/Grid/Hover-transit/Random; ghi rõ trace thực, DT hay tổng hợp.
+A3 Link: vị trí/kênh → RSS/RSRP/SNR → impairment delay/loss/rate → tc/netem; đối chiếu target impairment với packet behavior thực trong emulator.
+A4 End-to-end fidelity: so reference physical, reference DT (nếu paired) và twin đề xuất. Chỉ dùng IDS accuracy ở pha sau; không lấy IDS score làm bằng chứng fidelity.
+
+Pilot: trước scale chạy 20–40 run bao trùm F1–F3, traffic benign/attack đại diện và channel. Kiểm tra PX4 mission completion, MAVLink routing, attack timing, đồng bộ PCAP–ULog–event log, tc/netem và khả năng lặp. Tách pilot khỏi thống kê chính nếu đổi cấu hình.
+
+Campaign C2 chính:
+3 mission × 4 channel × 5 traffic classes × 5 repetitions = 300 runs.
+Mỗi seed/repetition bao phủ tổ hợp cân bằng. Không nhân thêm 4 mobility profile vào full attack matrix. Calibration/robustness riêng: 4 mobility profiles × 4 channels × N seeds, không cần 5 traffic conditions; chốt N sau pilot. Nếu nhân F×M×C×T×seeds sẽ thành 1.200 run và không cần thiết.
+
+7. PIPELINE ĐẦU CUỐI
+
+P0 — Research protocol: chốt topology, phiên bản PX4/Gazebo/MAVLink, 3 mission, 4 channel, 4 attack + benign, timing, seed, run_id, time sync, tiêu chí loại run, split và threat model.
+
+P1 — Thu thập reference data: Dataset-19/Gürses, AFAR, AADM, Dataset-34; lưu DOI/URL, version, ngày tải, license, checksum, README và metadata. Dùng Dataset-32/CSV path_loss_db nếu truy cập được; Maeng là nguồn bổ sung nếu có. Tạo data ledger ghi rõ từng trường dùng cho Layer 1/2/3, nguồn empirical/DT/simulated và việc trường đó có tham gia fit/tuning hay không. Thu benchmark cyber chỉ sau xác minh citation/quyền dùng.
+
+P2 — Chuẩn hóa và QC: timestamp/timezone, GPS/coordinate, altitude, distance, frequency, RSS/RSRP/SNR, attitude, packet metrics; kiểm tra units, missing, duplicate, ordering, provenance/checksum.
+
+P3 — Layer 1 propagation: vị trí UAV/BS → khoảng cách 3D → channel impulse response/received power → path loss. Ưu tiên Dataset-19 (Gürses–Sichitiu; 9 flights, nhiều độ cao/tần số): xử lý raw I/Q bằng source code/metadata, kiểm tra gain/reference và tính path loss nhất quán. Nếu không thể hậu xử lý, dùng Dataset-32 nếu tải được CSV/NPZ `path_loss_db`. Phân tầng theo tần số/flight, không gộp thô. Báo cáo MAE, RMSE, bias, Pearson và giới hạn coverage.
+
+P4 — Layer 2 mobility: chuyển trace/reference profiles thành trajectory library và mission cho SITL. Đánh giá position/altitude error, speed/heading distribution, temporal correlation. Gắn provenance real/DT/synthetic.
+
+P5 — Layer 3 link: trajectory → distance/LOS-NLOS → RSS/SNR/SINR → loss/delay/rate → tc/netem. Đối chiếu impairment đặt ra với packet-level behavior. Dataset-34 chỉ là geometry-driven NLOS comparator.
+
+P6 — Layer 4 fidelity: so telemetry/link/traffic distribution và temporal behavior. So Your DT↔physical, AERPAW DT↔physical, Your DT↔AERPAW DT nếu có cặp dữ liệu. Nêu sai khác sensor, sampling, environment, frequency, population. Không tuyên bố PHY fidelity nếu chỉ dùng Linux/tc abstraction.
+
+P7 — Xây C2 twin: PX4 SITL ↔ Gazebo ↔ MAVLink Router ↔ Containernet ↔ GCS; thêm attacker và IDS monitor. Kiểm tra heartbeat, command, mission item/ACK, telemetry, time sync, capture point.
+
+P8 — Chạy 300 run: mỗi run ứng với mission × channel × traffic × seed. Ghi run_id, mission_id, channel_id, attack_id, seed, software versions, impairment, start/end, ground truth. ID/time metadata dùng cho split/audit, không đưa thẳng vào model feature gây leakage.
+
+P9 — Dataset schema:
+run_id/
+  c2_gcs.pcapng
+  c2_uav.pcapng
+  mavlink_decoded.parquet
+  flight_data.ulg
+  flight_telemetry.parquet
+  channel_trace.csv
+  attack_events.jsonl
+  mission.json
+  impairment.json
+  metadata.json
+  manifest.json
+Giữ raw PCAP/ULog và transformation logs. Tạo ba view liên kết bằng run_id/timestamp: window-level (ví dụ 1 s; định nghĩa overlap/label), flow-level (5-tuple/IP/UDP nếu phù hợp), MAVLink semantic-level (message ID, sequence, command, interval, duplicate/stale, ACK, state transition).
+
+P10 — IDS:
+E1 binary benign/attack.
+E2 multiclass benign/Replay/FDI/MITM/DoS.
+E3 generalization: leave-one-mission/channel/seed/attack-variant out hoặc unseen variant. Chia theo run/flight/seed, không chia ngẫu nhiên cửa sổ cùng run sang train/test. Báo precision, recall, F1, confusion matrix, PR-AUC nếu phù hợp; stratify theo mission/channel/attack. Ablation network-only vs MAVLink semantic vs flight telemetry vs combined; kiểm tra shortcut channel bằng cân bằng/hoán đổi channel giữa benign/attack.
+
+P11 — Edge (nếu có thiết bị): xuất ONNX/TFLite nếu thích hợp; đo F1, latency median/p95, samples/s, model size, RAM/CPU trên Raspberry Pi/edge thật. Nếu mô phỏng tài nguyên thì gọi edge-resource emulation.
+
+P12 — Báo cáo/công bố: mô tả calibration, run matrix, schema, split, giới hạn, manifest và hướng dẫn tái lập; phân biệt empirical/emulated/synthetic cho mọi trường.
+
+8. TIÊU CHÍ ĐÁNH GIÁ FIDELITY
+
+Layer 1: path loss/propagation — MAE, RMSE, bias, Pearson; tách theo frequency, altitude, distance, LOS/NLOS.
+Layer 2: mobility — position/altitude error, speed/heading distribution, temporal correlation.
+Layer 3: link — RSS/RSRP/SNR/SINR, packet loss, delay/jitter, rate/throughput; so impairment mục tiêu với thực tế.
+Layer 4: end-to-end — inter-arrival time, packet size, burst, link duration, topology/state transition và trace fidelity; có thể dùng Hellinger/JSD, KS, RMSE/MAE, temporal correlation khi phù hợp và nêu cách tính.
+
+Nguyên tắc: calibration validity được chứng minh bằng phép đo/link/trace. IDS accuracy đo ích lợi dataset/model, không thay thế kiểm chứng twin.
+
+9. RỦI RO VÀ NGUYÊN TẮC HỢP LỆ
+
+- Không gọi Containernet/Linux/tc là physical RF testbed; mô tả là emulation.
+- Không tuyên bố twin “equivalent to UAV-CAS”; nói “adapts the calibration methodology”.
+- Không đưa deauthentication/Evil Twin vào lõi nếu twin không tạo và kiểm chứng frame Wi-Fi tương ứng; lõi hiện tại là MAVLink/IP.
+- Không gộp Maeng 3.51 GHz với Gürses–Sichitiu 3.4 GHz.
+- Không gọi Spiral/Grid/Hover-transit/Random là AERPAW campaigns hoặc C2-standard missions.
+- Không dùng Dataset-34 làm physical ground truth, RF capture hoặc empirical path-loss fit.
+- Không để channel profile trở thành shortcut dự đoán nhãn attack; cân bằng benign/attack qua channel.
+- Không đưa run_id, attack timing, metadata hậu nghiệm vào model feature gây leakage.
+- Chia train/test theo run/flight/seed; không chia cửa sổ ngẫu nhiên của cùng run.
+- Ghi riêng số liệu nguồn công bố với thông số do đề tài cấu hình; lưu version/checksum.
+
+10. ĐẦU RA VÀ CẤU TRÚC LUẬN VĂN
+
+Đầu ra: research protocol/threat model; dữ liệu tham chiếu đã chuẩn hóa/provenance; báo cáo bốn lớp calibration/fidelity; PX4/Gazebo–MAVLink–Containernet twin tái lập được; 300 run C2 cùng PCAP/MAVLink/ULog/channel/ground truth; schema, split, baseline IDS, kết quả generalization; hướng dẫn tái lập.
+
+Cấu trúc đề xuất:
+1. Giới thiệu, câu hỏi và đóng góp.
+2. UAV-CAS, AERPAW, Digital Twin, MAVLink/C2 security.
+3. Dữ liệu tham chiếu, protocol và phương pháp calibration.
+4. Thiết kế twin PX4/Gazebo–Containernet và fidelity.
+5. Attack campaign, run matrix và dataset schema.
+6. IDS, generalization, ablation, edge (nếu có).
+7. Thảo luận, giới hạn, kết luận.
+
+11. TÀI LIỆU THAM KHẢO CẦN ĐƯỢC GẮN VÀO TỪNG PHẦN
+
+[1] S. Mishra, B. Bhargava, Z. Liu, S. Islam, “UAV-CAS: A Calibrated Digital-Twin Dataset for Intrusion Detection in UAV Swarm Networks,” arXiv:2606.17845, 2026. — Phương pháp calibration, mobility, Containernet.
+[2] S. J. Maeng, H. Kwon, O. Ozdemir, I. Guvenc, “Impact of 3-D Antenna Radiation Pattern in UAV Air-to-Ground Path Loss Modeling and RSRP-Based Localization in Rural Area,” IEEE Open Journal of Antennas and Propagation, vol. 4, pp. 1029–1043, 2023. DOI: 10.1109/OJAP.2023.3322145. — Fit propagation.
+[3] S. J. Maeng et al., “LTE I/Q Data Set for UAV Propagation Modeling, Communication, and Navigation Research,” IEEE Communications Magazine, 2023. DOI: 10.1109/MCOM.005.2200784; arXiv:2303.01635. — Dataset companion.
+[4] “AERPAW Find-a-Rover (AFAR) Challenge in December 2023,” Dryad Dataset. DOI: 10.5061/dryad.18931zd4g. — Mobility/RSS/DT-testbed.
+[5] B. Chatterjee et al., “Wireless Signal Source Localization by Unmanned Aerial Vehicle Using AERPAW Digital Twin and Testbed,” Proc. IFIP Networking 2024. DOI: 10.23919/IFIPNetworking62109.2024.10619824. — AFAR/DT-testbed.
+[6] M. S. Hossen et al., “Collection: UAV-Based Wireless Multi-Modal Measurements From AERPAW Autonomous Data Mule (AADM) Challenge in Digital Twin and Real-World Environments,” IEEE Data Descriptions, vol. 3, pp. 354–366, 2026. DOI: 10.1109/IEEEDATA.2026.3685296; dataset DOI: 10.5061/dryad.7d7wm3898. — Mobility/SNR/throughput.
+[7] A. Gürses, M. L. Sichitiu, “Air-to-Ground Channel Modeling for UAVs in Rural Areas,” Proc. IEEE VTC2024-Fall, pp. 1–6. DOI: 10.1109/VTC2024-Fall63153.2024.10757825; dataset DOI: 10.5061/dryad.2ngf1vj4r. — Held-out 3.4 GHz.
+[8] AERPAW, “Dataset-34: Reinforcement Learning with 3D UAV Network Digital Twin (RL-AERPAW-DT),” 2026. https://aerpaw.org/dataset/dataset-34-reinforcement-learning-with-3d-uav-network-digital-twin-rl-aerpaw-dt/. — 3D/ray-tracing LOS/NLOS.
+[9] J. Huang, E. Tucker, R. Yu, Y. Liu, “Twin-Guided Meta Learning for Generalizable UAV Trajectory Planning in Low-Altitude Wireless Networks,” IEEE ICCCN 2026. DOI: 10.1109/ICCCN69946.2026.11662747. — Ứng dụng RL-AERPAW-DT.
+[10] Z. Yao, “Belief aware manifold robust control for wireless channel optimization in UAV mounted intelligent reflecting surface systems,” Discover Artificial Intelligence, 2026. DOI: 10.1007/s44163-026-01737-8. — Kênh động/RL-AERPAW-DT.
+[11] K. Highnam, K. Angstadt, K. Leach, W. Weimer, A. Paulos, P. Hurley, “An Uncrewed Aerial Vehicle Attack Scenario and Trustworthy Repair Architecture,” 46th Annual IEEE/IFIP DSN Workshops (DSN-W), 2016, pp. 222–225. DOI: 10.1109/DSN-W.2016.63. — Waypoint surveillance/MAVLink manipulation.
+[12] Y.-M. Kwon, J. Yu, B.-M. Cho, Y. Eun, K.-J. Park, “Empirical Analysis of MAVLink Protocol Vulnerability for Attacking Unmanned Aerial Vehicles,” IEEE Access, vol. 6, pp. 43203–43212, 2018. DOI: 10.1109/ACCESS.2018.2863237. — MAVLink injection/DoS.
+[13] H. J. Hadi, M. K. Khan, N. Ahmad, “A Real-Time Multi-Tier Machine Learning Intrusion Detection Framework for Securing Ground Control Station–UAV Communications,” IEEE Open Journal of the Communications Society, 2026. DOI: 10.1109/OJCOMS.2026.3683883. — GCS-UAV testbed/IDS.
+[14] Benchellal et al., “Control-Aware Manipulation of ArduPilot via Legitimate MAVLink Commands: Simulation and Hardware Validation,” arXiv:2606.22289, 2026 (preprint). — Supporting evidence SITL/hardware.
+[15] P. S. Kudyba, Q. Lu, H. Sun, “Bayesian Optimization for Fast Radio Mapping and Localization with an Autonomous Aerial Drone,” IEEE VTC2024-Fall. DOI: 10.1109/VTC2024-Fall63153.2024.10757589. — AFAR/radio mapping.
+[16] S. Masrur, I. Guvenc, “Bridging Simulation and Reality: A 3D Clustering-Based Deep Learning Model for UAV-Based RF Source Localization,” IEEE ICC Workshops 2025, pp. 953–958. DOI: 10.1109/ICCWorkshops67674.2025.11162478. — AFAR/sim-to-real.
+[17] J. J. Sadique, M. R. Khan, A. S. Ibrahim, “UAV-aided Fast Data Collection via Machine Learning Using AERPAW’s Digital Twin,” WiNTECH 2025, pp. 89–96. DOI: 10.1145/3737895.3768305. — AADM/data mule.
+
+12. VIỆC CẦN CHỐT TRƯỚC THỰC NGHIỆM
+
+- Chốt phiên bản PX4/Gazebo/MAVLink/GCS, topology và capture points.
+- Chốt tọa độ/altitude/speed/mission duration cho F1–F3.
+- Chốt channel parameters từ calibration, giữ frequency của từng nguồn.
+- Định nghĩa attack success/ground-truth schema và tiêu chí dừng an toàn trong SITL.
+- Xác minh venue/DOI/trạng thái publication các mục 2026/preprint trước khi nộp.
+- Bổ sung tiêu đề/tác giả/DOI chính xác cho UAV-NIDD, UAV-GCS IDS, Hassler nếu muốn đưa bibliography; plan2 chỉ nêu tên tắt.
+- Chốt N cho robustness sau pilot, tách với 300 run chính.
+- Chốt split theo run/seed/mission/channel/attack variant trước khi huấn luyện.
+
+Ghi chú thư mục: tên bài và DOI ở đây được trích từ plan2.txt. Đối chiếu với nhà xuất bản/kho dữ liệu chính thức trước khi nộp luận văn, nhất là mục năm 2026/preprint. Không nhầm tên dataset với tiêu đề bài báo.
+
+PHỤ LỤC CẬP NHẬT — TRẠNG THÁI CODE VÀ QUY TRÌNH CHẠY SAU KHI TÍCH HỢP
+
+Các thay đổi mã nguồn hiện tại:
+- `src/pipeline/P2_collect_gurses_processed.py` chỉ gom đầu ra của source postprocessor. Nó đọc `data/summary.json` theo từng campaign, yêu cầu TX/RX reference có nguồn đo được, finite, không extrapolation, không có link-budget warning và có path-loss mẫu hợp lệ. Tất cả flight phải dùng nhất quán cùng định nghĩa path loss (antenna-corrected chỉ khi confidence medium/high; nếu không thì raw source path loss). Không dùng IQ RMS thay thế.
+- `src/pipeline/P3_layer1_propagation_gurses.py` fit Close-In (CI) theo từng carrier và báo free-intercept (FI) làm comparator. Holdout lặp theo nhóm flight; sau đánh giá mới fit hệ số cuối trên toàn bộ flight dùng cho calibration. Báo cáo miền khoảng cách/độ cao, provenance và sai số holdout. Các split lặp lại tái sử dụng flight nên không được diễn giải là có thêm mẫu độc lập.
+- `uav-cas/Scripts/0-step1_process_aadm.py` đọc thêm `Report` từ controller log (timestamp, BS phục vụ, SNR, rate Mbps, cumulative RECV Mbits), ghép với vị trí GPS nội suy và khoảng cách ngang theo BS. Đây là KPI của AADM data mule, không phải throughput/RTT/loss của MAVLink C2.
+- `src/pipeline/P6_evaluate_layer3_aadm.py` đánh giá SNR theo khoảng cách và, nếu có report rate, rate theo SNR trên flight bị giữ lại. Đây là đánh giá testbed ngoài chiến dịch fit Gürses, không chuyển hệ số Gürses sang radio AADM.
+- `src/pipeline/run_all.sh` tự gọi source processor SigMF, collector, P3, xử lý AADM/P6 nếu dữ liệu hiện diện, rồi mới đến SITL. Script kiểm tra package Gürses đầy đủ và fail sớm khi thiếu `utils/pathloss.py`, `utils/channel_models.py` hoặc kết quả/calibration đầu vào.
+
+GHI ĐÈ TRẠNG THÁI QUY TRÌNH SAU BẢN SỬA CUỐI (03-10-2026):
+- P8 hiện lấy các carrier có trong artifact Layer 1, không còn mặc định 3.564/3.620/3.686 GHz. Tần số ngoài miền đã fit sẽ bị từ chối. Vì Gürses hiện chỉ là campaign 3.4 GHz, cấu hình mặc định hiện tại chỉ có carrier mà dữ liệu fit thực sự hỗ trợ; số run phải tính theo số carrier của artifact, không mặc định 3 carrier.
+- `ultis/post_process.py:get_exp_dir()` đã được sửa lỗi nhận chuỗi path CLI như iterable ký tự và bỏ ngưỡng tùy tiện >500 capture; hỗ trợ path root, campaign đơn và danh sách campaign, chỉ nhận thư mục có file capture tương ứng.
+- Phần P2–P10 tại các đoạn cũ của kế hoạch là mô tả/đề xuất ở thời điểm trước; trạng thái hiện tại được mô tả ở phụ lục này và `src/pipeline/README.md`. Tuy vậy đây chưa phải workflow đã được chạy/kiểm chứng: thiếu `utils/` hoàn chỉnh trong checkout, cần TX/RX reference thật, và Linux SITL runtime/image. Không chạy trên Windows native.
+
+Để lệnh chạy cuối không cần can thiệp thủ công, vẫn phải chuẩn bị một lần các phụ thuộc ngoài mã: package post-processing Gürses đúng phiên bản (kể cả file bị gitignore), TX/RX calibration reference đo được và không ngoại suy, Python packages, Linux + Docker/Containernet/root, image SITL đã build, cấu hình/antenna/calibration files và dữ liệu AERPAW đúng vị trí. Trên workspace hiện tại thiếu ít nhất các module `utils/pathloss.py` và `utils/channel_models.py` trong bản `ultis`; do đó pipeline sẽ chủ động dừng thay vì tạo kết quả hiệu chuẩn giả. Có thể trỏ `GURSES_POSTPROCESS_DIR` đến bản source hoàn chỉnh. Nếu reference TX/RX chưa có hoặc summary vẫn mang fallback/warnings, cần hiệu chuẩn thiết bị hoặc sửa cấu hình theo hồ sơ đo thật trước khi P2/P3 chấp nhận.
+
+Claim sau khi chạy thành công các bước Layer 1: “path-loss model empirically fitted/calibrated for the observed Gürses/AERPAW carrier, geometry and campaign, with flight-grouped holdout evaluation.” Chưa được gọi là absolute received-power calibration, multi-frequency/multi-environment generalization, calibrated RF-to-C2 impairment, hoặc calibrated full digital twin chỉ từ kết quả này.
+
+Để khẳng định Layer 3 đã hiệu chuẩn: cần đo đồng bộ trên đúng loại link C2/MAVLink của đề tài các trường thời gian, RSS/SNR/RSRP nếu có, packet send/receive, loss, RTT/one-way delay, throughput/goodput, queue/qdisc state, topology, radio/antenna config và trajectory/altitude. Tách các chuyến bay/missions hoàn toàn giữa fit và holdout. AADM `Report` rate là nguồn hữu ích cho pipeline AADM comparison, nhưng không thay thế các KPI C2 vì khác traffic, endpoint và cấu hình radio. Tham khảo Hossen et al., “Collection: UAV-Based Wireless Multi-Modal Measurements From AERPAW Autonomous Data Mule (AADM) Challenge in Digital Twin and Real-World Environments” (vai trò và giới hạn dataset), cùng Mishra et al., “UAV-CAS: A Calibrated Digital-Twin Dataset for Intrusion Detection in UAV Swarm Networks” (khung multi-layer calibration/fidelity); xem thêm bài Gürses & Sichitiu, “Air-to-Ground Channel Modeling for UAVs in Rural Areas” cho fit path loss. Không khẳng định dùng cùng calibration/testbed với UAV-CAS nếu không tái tạo chính xác thiết lập và KPI của họ.
+
+PHỤ LỤC CẬP NHẬT LAYER 1 — ÁP DỤNG THAY CHO CÁC ĐOẠN CŨ NÓI GÜRSES LÀ HOLD-OUT
+
+Kết luận: Có thể dùng riêng dữ liệu Gürses–Sichitiu cho Layer 1 khi không tải được Maeng, nhưng cần thu hẹp claim. Nguồn dữ liệu chính thức là AERPAW Dataset-32, “AERPAW Air-to-Ground Channel Sounding and Path Loss Measurements at 3.4 GHz with Linear and Zigzag UAV Trajectories” (2026), Dryad: “AERPAW air-to-ground channel sounding and path loss measurement with a UAV at 3.4GHz,” DOI 10.5061/dryad.2ngf1vj4r. Bài liên quan: A. Gürses, M. L. Sichitiu, “Air-to-Ground Channel Modeling for UAVs in Rural Areas,” IEEE VTC2024-Fall, DOI 10.1109/VTC2024-Fall63153.2024.10757825.
+
+Metadata Dataset-32 cho biết CSV/NPZ đã có các trường `uav2ground_dist` (khoảng cách 3D trực tiếp), `path_loss_db`, tọa độ/độ cao UAV, vị trí/độ cao máy phát cố định, thời gian và heading. Có 4 chuyến bay ở độ cao xấp xỉ 60 m: hai linear và hai zigzag lặp lại, tại AERPAW Lake Wheeler, tần số 3.4 GHz. Dữ liệu cũng có raw IQ/SigMF, nhưng Layer 1 có thể bắt đầu từ CSV/NPZ đã xử lý; không cần tải toàn bộ raw IQ nếu mục tiêu chỉ là fit path loss.
+
+Điều chỉnh mô tả phương pháp:
+- Không mô tả bản ghi là “UAV ở 50 m, cách 200 m, RSS = -75 dBm” trừ khi một hàng cụ thể trong dataset thực sự có đúng các giá trị đó. Dataset mô tả `path_loss_db`, không phải cột RSS/RSRP dBm theo metadata.
+- Fit quan hệ `path_loss_db` với khoảng cách 3D; ví dụ log-distance `PL(d)=PL(d0)+10 n log10(d/d0)+ε`, hoặc mô hình được bài báo/README định nghĩa. Tránh tự đặt ý nghĩa cho các hệ số A, n, α. Nếu dùng `PL=A+10n log10(d)+αh`, alpha độ cao không nhận dạng được đáng tin từ các chuyến bay chỉ quanh một altitude; bỏ α hoặc cố định theo điều kiện campaign, và ghi rõ.
+- Có thể dùng bốn flight làm nhóm lặp/kiểm tra theo flight: fit trên một số flights, đánh giá trên flight lặp còn lại; hoặc grouped cross-validation. Không chia ngẫu nhiên từng dòng nếu các mẫu thời gian liền kề gây leakage. Với chỉ bốn flights, báo cáo biến thiên/độ bất định và không phóng đại độ mạnh thống kê.
+- Báo cáo MAE/RMSE/bias và plot path loss theo khoảng cách, residual theo flight/heading/trajectory. Nêu frequency 3.4 GHz, độ cao khoảng 60 m, transmitter/receiver geometry, antenna/radio setup và khoảng cách min/max thực tế sau khi kiểm tra dữ liệu.
+- Đầu ra hiệu chỉnh chỉ được xem là mô hình thực nghiệm cho vùng hình học/tần số được quan sát. Chỉ dự báo ở 500 m nếu 500 m nằm trong khoảng dữ liệu và setup tương thích; nếu ngoài miền quan sát, gọi là extrapolation, kèm bất định/giới hạn và không nói twin “biết chính xác”.
+- Khi áp trong twin, path loss cần chuyển thành received power/link budget bằng Tx power, antenna gains, cable/system losses và receiver assumptions; sau đó có thể ánh xạ sang RSS/SNR rồi thành delay/loss/rate cho `tc/netem`. Path-loss fit một mình chưa hiệu chỉnh đầy đủ fading, PHY/MAC, Doppler hay end-to-end C2.
+
+Mục tiêu Layer 1 đã chỉnh:
+“Hiệu chỉnh mô hình suy hao A2G theo khoảng cách 3D cho cấu hình AERPAW 3.4 GHz bằng các phép đo path_loss_db trong Dataset-32; đánh giá khả năng tổng quát hóa giữa các flight trong cùng campaign và mô tả rõ giới hạn về độ cao, tần số, môi trường và miền khoảng cách.”
+
+Không còn tuyên bố Gürses là independent validation. Muốn validation độc lập sau này cần một tập đo khác không tham gia fitting (Maeng nếu truy cập được, hoặc campaign độc lập phù hợp), hoặc giữ một flight hoàn toàn ngoài quá trình chọn/tuning mô hình và gọi chính xác là flight-level holdout nội bộ.
+
+
+PHƯƠNG ÁN CHỐT SAU ĐIỀU CHỈNH — LAYER 1 VÀ CÁCH DÙNG AFAR
+
+A. Nguyên tắc
+Một campaign được phép đóng góp cho nhiều layer. AFAR có thể dùng GPS/altitude/heading để xây mobility ở Layer 2 và dùng power log đồng bộ để kiểm tra xu hướng mức thu theo hình học ở Layer 1. Cần tách rõ biến, mục đích và vai trò train/validation. Dùng AFAR ở Layer 2 không tự động làm mất giá trị của power log ở Layer 1; nhưng nếu xem power log để chọn/tune mô hình Layer 1 thì không được báo cáo lại chính nó như một kiểm định độc lập.
+
+B. Layer 1 — Propagation
+1) Nguồn fit chính: Dataset-32 của Gürses–Sichitiu, “AERPAW air-to-ground channel sounding and path loss measurement with a UAV at 3.4GHz” (Dryad DOI 10.5061/dryad.2ngf1vj4r), dùng trường `path_loss_db` và `uav2ground_dist` cùng metadata vị trí/độ cao. Phạm vi nguồn: 3.4 GHz, bốn flight linear/zigzag, altitude xấp xỉ 60 m. Nếu không tải được Dataset-32, không ghi rằng đã fit từ raw data; thay bằng phương án xin CSV/NPZ đã xử lý từ tác giả hoặc thu hẹp nghiên cứu sang công thức/baseline và mô phỏng sensitivity.
+2) Fit mô hình log-distance hoặc mô hình được nguồn định nghĩa; không tự đặt ý nghĩa cho A, n, alpha. Với gần như một altitude, không ước lượng hệ số altitude riêng. Kiểm tra theo flight/trajectory, báo cáo MAE/RMSE/bias và plot residual; lưu ý số flight ít.
+3) AFAR được dùng làm kiểm tra chéo ngoài mẫu nếu chưa dùng power log của nó để lựa chọn mô hình. AFAR có power (dBm) và timestamp/GPS/altitude. Kiểm tra trước dải altitude và điều kiện đo; không mặc định AFAR đa độ cao. Do tần số/waveform/antenna/calibration có thể khác Dataset-32, so sánh xu hướng power theo khoảng cách/độ cao và thứ tự mạnh-yếu, hoặc chỉ so absolute values sau khi xác minh link budget tương thích. Không trộn trực tiếp `power` với `path_loss_db`.
+4) Nếu dùng AFAR power để tune: chia AFAR theo flight/trajectory trước; phần train chỉ để hiệu chỉnh phụ, phần giữ lại mới làm within-AFAR holdout. Không còn gọi toàn bộ AFAR là external validation độc lập.
+5) Báo cáo chỉ áp dụng cho miền tần số, môi trường và hình học đã kiểm tra. Dự báo ngoài miền khoảng cách/altitude là extrapolation. Dataset-34 có thể dùng stress test NLOS mô phỏng, không thay phép đo vật lý.
+
+C. Layer 2 — Mobility và tái sử dụng AFAR
+Dùng riêng các trường GPS, altitude, heading/attitude, timestamp để trích quỹ đạo, vận tốc, thời gian bay và phân bố chuyển động. Từ các trace thực AFAR/AADM/Maeng tạo mobility library; các profile UAV-CAS Spiral/Grid/Hover-transit/Random là abstraction/robustness scenarios, không đổi thành tên campaign. Không dùng power/RSS làm đầu vào mobility generator nếu mục tiêu là tách đánh giá Layer 1.
+
+D. Quản lý chống leakage và báo cáo
+Tạo ledger mỗi trường: dataset, field, unit, source type (physical/DT/simulation), layer sử dụng, fit/tuning/holdout, campaign/flight ID. Đóng băng mô hình Layer 1 trước khi đọc kết quả AFAR holdout. Chia theo flight/trajectory, không chia ngẫu nhiên từng timestamp liền kề. Công bố kết quả theo từng campaign, không chỉ một pooled metric.
+
+E. Ma trận nguồn thực tế phù hợp với khả năng tải hiện tại
+- Gürses Dataset-32: fit path loss ở 3.4 GHz/~60 m nếu tải được.
+- AFAR (Dryad DOI 10.5061/dryad.18931zd4g; bản hiện liệt kê 68.66 MB): mobility chính; power log là cross-check có điều kiện.
+- Semi-circle 4G (DOI 10.5061/dryad.gmsbcc30x; khoảng 6.66 MB; 50 m): bổ sung RSRP/RSSI theo vị trí, không xem là độ phủ đa cao độ.
+- Ericsson 5G NSA (DOI 10.5061/dryad.wh70rxx06; khoảng 1.28 MB; 30 m): kiểm tra KPI/công nghệ khác, không gộp thẳng vào path-loss fit.
+- Dataset-34: NLOS/urban comparator mô phỏng.
+
+Các bộ nhỏ trên giúp tăng số campaign, loại KPI, quỹ đạo và một số mức altitude; không tạo thành dải đo đa cao độ tương đương Maeng nếu chưa xác minh altitude coverage. Phải viết giới hạn này trong kết luận Layer 1.
+
+CẬP NHẬT NGUỒN LAYER 1 — THAY DATASET-32 BẰNG DATASET-19 KHI CẦN
+
+Nguồn đề xuất: “AERPAW Air-to-ground channel sounding and multipath measurement with a UAV,” Gürses, Anıl; Sichitiu, Mihail L. (2025), Dryad DOI 10.5061/dryad.7h44j105p. AERPAW định danh nguồn này là Dataset-19. Gói tải được niêm yết khoảng 244.26 MB, nhỏ hơn nhiều so với gói 17.27 GB của Dataset-32. AERPAW mô tả Dataset-19 có 9 flights ở các độ cao và tần số khác nhau; Dryad README mô tả dữ liệu I/Q SigMF, channel sounder, GPS/altitude/location, rotation, velocity, flight stage, speed/distance và Tx/Rx reference gain. Mã channel sounder/post-processing được công bố kèm nguồn.
+
+Đánh giá khả năng thay thế:
+- Có thể thay Dataset-32 làm nguồn empirical cho Layer 1, và về đa dạng altitude/frequency có tiềm năng phù hợp hơn. Trước khi chốt, tải README/metadata và lập coverage table: flight ID × carrier frequency × UAV altitude × distance span × data status. Không giả định đủ số flight ở mọi tổ hợp; dùng đúng các tổ hợp thực có.
+- Dataset-19 cung cấp raw channel sounding/multipath, không phải bảng `path_loss_db` CSV đã sẵn sàng như Dataset-32. Phải xử lý I/Q theo waveform/reference, đồng bộ Tx/Rx, antenna/system gain và post-processing code để tính channel impulse response/received power/path loss. Lưu script, cấu hình và checksum để tái lập. Không suy path loss từ RSS tùy ý nếu chưa xử lý calibration/reference levels.
+- Fit/đánh giá theo group: giữ nguyên flight hoặc nhóm frequency làm holdout; không chia các mẫu I/Q/thời điểm liên tiếp ngẫu nhiên giữa train và test. So sánh mô hình theo từng tần số trước; nếu muốn một mô hình chung thì frequency phải là biến/hiệu chỉnh tường minh và phải có coverage chồng lấp đủ để nhận dạng ảnh hưởng.
+- Dù có nhiều flight/frequency/altitude, nguồn này vẫn là một vùng đo AERPAW nông thôn. Không tuyên bố tổng quát hóa sang mọi môi trường địa lý/urban chỉ từ Dataset-19. Dataset-34 chỉ bổ sung NLOS mô phỏng.
+- AFAR tiếp tục dùng chính yếu cho Layer 2; power log có thể dùng cross-check Layer 1 nếu giữ độc lập với fit, hoặc chia theo flight/trajectory và gọi đúng là holdout nội bộ/ngoại bộ tương ứng.
+
+Cách ghi mục tiêu Layer 1 sau đổi nguồn:
+“Hiệu chỉnh mô hình A2G path loss từ channel sounding thực nghiệm AERPAW Dataset-19 bằng cách khôi phục các đại lượng channel/path loss từ I/Q và metadata, đánh giá theo các flight/frequency groups có dữ liệu; nêu rõ miền altitude, distance, frequency và môi trường mà mô hình được kiểm chứng.”
+
+Nếu Dataset-19 tải được nhưng không thể xử lý I/Q/gain metadata, không được coi việc tải raw I/Q là đã hoàn thành calibration. Khi đó dùng Dataset-32 đã xử lý nếu tiếp cận được, xin tác giả bản CSV/NPZ đã xử lý, hoặc giới hạn Layer 1 ở baseline/sensitivity analysis.
+
+PHỤ LỤC KIỂM TOÁN TĨNH SRC VÀ KẾ HOẠCH SỬA — BẢN ƯU TIÊN HIỆN TẠI
+
+Phạm vi kiểm toán: `src/pipeline/run_all.sh` và các script P2–P10 được mã này gọi hoặc được thiết kế để nối vào pipeline. Đây là rà soát mã tĩnh, chưa chạy script, notebook, simulator hay campaign. Những nhận xét dưới đây là lỗi/thiếu sót của code hiện tại, không phải khẳng định dữ liệu đầu vào chắc chắn có lỗi. Phụ lục này ưu tiên hơn mô tả cũ nếu hai phần mâu thuẫn.
+
+KẾT LUẬN ĐIỀU HÀNH
+
+Pipeline hiện chưa đủ điều kiện tạo dataset nghiên cứu có thể gắn nhãn “measurement-calibrated digital-twin data”. `run_all.sh` đi theo nhánh Gürses, nhưng P7 chưa thực sự chạy dịch vụ/mạng MAVLink hay áp impairment, P8 sinh file rỗng thay cho campaign, P9 tự tạo telemetry/traffic/nhãn mẫu, và P10 có nguy cơ parse sai nhãn attack. Layer 1 cũng chưa chứng minh IQ đã đổi sang đơn vị công suất/path loss có hiệu chuẩn. Trước khi có kết quả định lượng, cần tách rõ prototype/mock khỏi dữ liệu thực, hoàn thiện pipeline và lưu bằng chứng kiểm tra từng run.
+
+1. DANH SÁCH ĐIỂM CẦN SỬA THEO FILE
+
+P0 — `src/pipeline/run_all.sh`
+- Chuẩn hóa mọi path dựa trên vị trí script (`SCRIPT_DIR`/repo root), không phụ thuộc thư mục người dùng gọi lệnh. Hiện các path `../...` vừa giả định working directory, vừa không khớp layout nơi data AERPAW/AFAR đang ở repo root. Truyền rõ `--raw_dir`, `--afar_dir`, `--output_dir`; kiểm tra input/output tồn tại trước khi chạy.
+- Dùng Python interpreter/environment đã chốt thay vì ngầm giả định `python3`; dừng nếu dependency hoặc đầu ra bước trước không tồn tại/không hợp lệ.
+- Không in “Finished Successfully” chỉ dựa trên exit code của các bước tạo mock; kết thúc campaign chỉ khi manifest xác nhận đủ artifact hợp lệ và validation pass.
+- Loại thông báo “P8 internally calls P7” vì không đúng với mã hiện tại; P8 đang comment subprocess gọi P7.
+
+P2 — `P2_process_gurses_raw.py` (nhánh đang dùng) và `P2_standardize_gurses.py` (placeholder)
+- Chọn một implementation chuẩn duy nhất. `run_all.sh` hiện gọi `P2_process_gurses_raw.py`; `P2_standardize_gurses.py` hiện không map cột: nếu có CSV thì `pass`, nếu không có CSV thì xuất CSV rỗng. Đánh dấu placeholder, không cho nhầm là bước chuẩn hóa dùng được.
+- Trước xử lý, parse SigMF đúng theo bản Dataset-19 cụ thể: kiểm tra `core:datatype`, sample rate, capture/sample ranges, timestamps, tần số, waveform/reference, Rx/Tx telemetry và flight/campaign ID. README Dryad Dataset-19 (DOI 10.5061/dryad.7h44j105p) có nêu `core:dist`, `core:rx_location`, `core:tx_location` ở metadata capture; vì vậy có thể dùng các trường này nếu file thực tế xác nhận đúng schema, đơn vị và altitude datum. Không mặc định chỉ một capture/metadata record cho mỗi file hay dùng default frequency khi thiếu trường.
+- Dùng loader/post-processing chính thức của Gürses làm chuẩn đối chiếu cho xử lý sounding. Không lấy `mean(abs(IQ)**2)` của cả file làm RSS/RSRP dBm. Cần phát hiện từng burst/preamble, matched filter/correlation với reference waveform, tính CIR/received power theo đúng bandwidth/normalization và áp calibration context Tx/Rx, antenna, gain, cable/system loss theo source code/README và metadata. Nếu không tái tạo được link budget/calibration thì trường đó phải đặt tên ADC/dBFS hoặc “uncalibrated relative power”, không gắn nhãn dBm.
+- Xác minh quy ước dấu và đơn vị `rx_gain_ref`; không trừ trường gain theo giả định. Lưu calibration inputs, TX/RX reference levels, antenna correction, firmware/config, waveform và cách xử lý saturation.
+- Xử lý tất cả captures hợp lệ theo sample range, ánh xạ thời gian/telemetry gần nhất; không bỏ capture phụ. Kiểm tra timestamp trùng/không đơn điệu, file cặp thiếu, sample count, file rỗng, NaN/Inf và metadata bất khả thi.
+- Tạo ID flight ổn định từ tên/metadata, sắp xếp file deterministically, ghi số lượng files/captures/mẫu đầu vào/đầu ra/bị loại và lý do. Không `except KeyError: continue` im lặng.
+- Xuất schema có: `dataset_id`, `version`, `flight_id`, `campaign_id`, `capture_id`, timestamp UTC, frequency_Hz, sample_rate_Hz, Tx/Rx tọa độ và altitude có datum, distance_3d_m (tính bằng geodesy thích hợp hoặc lấy giá trị đã kiểm chứng), waveform, path_loss_db hoặc received_power_dbm đúng định nghĩa, quality flags, provenance.
+
+P3 — `P3_layer1_propagation_gurses.py`
+- Xóa fallback tạo 400 mẫu mock khi dữ liệu trống/thiếu `flight_id`; fail-closed trước khi fit. Nếu cần demo mock, tách thành chương trình riêng, ghi `synthetic_mock`, cờ dữ liệu giả trong manifest, không ghi vào nơi chứa calibration thực.
+- Kiểm tra schema, khoảng cách d>0, dải distance/frequency/altitude, đủ số capture/flight, NaN/Inf, flight counts và chất lượng đo trước fitting. Tạo bảng coverage theo flight × frequency × altitude × trajectory.
+- Dùng đúng mục tiêu đo: nếu input là `path_loss_db`, fit path-loss; nếu là calibrated received power, fit link-budget/received-power. Định nghĩa reference distance d0 và đơn vị, tránh gộp công suất thu với path loss.
+- Không fit một tham số chung cho nhiều carrier frequency rồi ghi cứng 3.4 GHz; stratify theo frequency hoặc có mô hình frequency-dependent được nhận dạng và kiểm chứng. Dataset-19 có nhiều flight/tần số/độ cao nhưng không mặc nhiên đủ dữ liệu ở mọi tổ hợp.
+- Không fit altitude coefficient α nếu altitude coverage/geometry không đủ để nhận dạng. Với dataset chỉ khoảng 60 m, ghi miền hẹp này và không tuyên bố đa độ cao.
+- Thay một lần GroupShuffleSplit ngẫu nhiên bằng holdout theo flight/campaign/frequency theo câu hỏi nghiên cứu, ghi IDs train/test, lặp grouped CV khi số flight cho phép, báo cáo confidence interval/độ bất định phù hợp. Không random split từng capture/time sample gần nhau.
+- Báo cáo baseline vật lý (free-space/log-distance/two-ray hoặc mô hình trong bài Gürses), MAE, RMSE, bias, Pearson r nếu phù hợp, residual theo flight/frequency/altitude/distance và so với baseline; metric test phải tính trên holdout chưa tham gia lựa chọn mô hình.
+- Lưu JSON versioned, schema validator, fit domain, data file checksums, DOI/version, preprocessing commit, parameters/units, training/holdout IDs, metrics, confidence intervals và cảnh báo extrapolation. Đổi tên `distance_only_model` cho thống nhất với P5; không hard-code field semantically mơ hồ `A`.
+
+P4 — `P4_layer2_mobility.py`
+- Dựa trên README/schema thực tế của AFAR/AADM, không giả định `log.csv` luôn không header và hai cột đầu luôn lon/lat. Xác nhận đơn vị, thứ tự longitude/latitude, datum/altitude AGL vs AMSL, timestamp/timezone, missing values và flight ID.
+- Sắp xếp log deterministically và ánh xạ mission theo metadata/flight submission, không lấy tùy tiện ba file đầu. Không tái sử dụng cùng một file để tạo nhiều mission mang tên khác nếu không ghi đó là synthetic transform.
+- Giữ timestamp, altitude, position, velocity/heading thật; nếu resample hoặc làm waypoint simplification thì lưu thuật toán, sampling rate/tolerance, sai số quỹ đạo/tốc độ. Không thay độ cao đo bằng fixed altitude rồi gọi là trace thực.
+- Bảo đảm mission “hold/hover” thật sự có lệnh hold/loiter và thời lượng; hiện tên F3 không tương ứng cấu trúc mission. Kiểm định `.plan` với schema/phiên bản QGroundControl/PX4, command/frame/altitude/coordinate fields; không phát hành file chưa import/parse được.
+- Chuyển tọa độ sang local ENU/NED hoặc map frame cho simulator; kiểm tra home, geofence, route continuity, tốc độ/gia tốc/độ cao an toàn, RTL/land và mission completion.
+- Validation mobility: RMSE vị trí/altitude theo thời gian, speed/heading distribution, duration, turn-rate/temporal autocorrelation và mức sai số sau waypoint reduction; tách reference trace với profile tổng hợp.
+
+P5 — `P5_layer3_link.py`
+- Chốt một model API/schema thống nhất với P3. P3 đang ghi khóa `distance_only_model`, P5 tìm `global_fit`/`overall_fit`, do đó cần fail rõ ràng thay vì âm thầm giữ A/n mặc định. Đồng thời thống nhất received power vs path loss, reference distance, sign, frequency, TX power, antenna gains, cable loss và noise bandwidth/noise figure.
+- Thay các mặc định A, n, P_tx, noise_floor bằng cấu hình có nguồn và units. Calibration file thiếu/sai schema phải dừng campaign hoặc buộc chọn chế độ synthetic có đánh dấu, không lặng lẽ fallback.
+- Không suy ra delay/loss/rate bằng các tuyến tính tùy đặt từ SNR. Cần dataset link-level đồng bộ đo được (SNR/RSSI + throughput, packet loss, latency/jitter) để fit/validate mapping, hoặc công bố impairment profiles là kịch bản stress-test có chủ ý chứ không phải calibration RF.
+- Không đọc Dataset-34 như một cột SNR rồi lấy max làm LOS và trừ tuần tự. Trước hết xác minh CSV/schema của nguồn Dataset-34 hiện có; giữ timestamp/coordinates/link geometry/LOS state, phân biệt ray-tracing/simulator với physical measurement. Gắn NLOS/drop theo time/position/geometry, không vòng lặp theo index và không chọn ngẫu nhiên 50% không seed.
+- Bỏ `-2 dB` fallback giả và random global RNG. Nhận `seed` từ từng run, tạo RNG cục bộ và lưu trạng thái/model params. Xử lý `altitude_m` hoặc bỏ khỏi API nếu không dùng; không tạo cảm giác altitude-dependent.
+- Định nghĩa đúng tc semantics: `tc netem rate` là giới hạn rate, không phải PHY throughput đã suy trực tiếp từ SNR. Kiểm tra impairment cài lên đúng interface/direction; xác minh bằng `tc -s qdisc`, captures hai đầu, sent/received packet counters, goodput/latency/loss thực. Ghi target và observed side-by-side.
+
+P7 — `P7_c2_twin.py`
+- Thay `ubuntu:latest` placeholder bằng image có dependency/service version pin; dựng PX4 SITL/Gazebo, MAVLink Router, GCS/MAVSDK/QGC, attacker, monitor và bridge/routing thực. Xác định cổng/transport/endpoint, firewall và node/interface mapping.
+- Bỏ đường dây nối flat cùng một switch nếu topology mục tiêu cần kênh UAV–GCS riêng; xác định vị trí gắn qdisc và capture points, tránh traffic attacker/monitor lẫn vào link cần đánh giá.
+- Đọc mission waypoint/time/altitude từ P4 trace hoặc scheduler, cập nhật state/position thực của simulator; bỏ khoảng cách `50+10*t` và altitude cố định dùng demo.
+- Áp dynamic impairment thực bằng tc/netem theo time-varying channel trace, không chỉ log giá trị. Có command apply/verify/rollback; ghi qdisc/interface/handle/direction/error và observed stats.
+- Khởi chạy traffic MAVLink thực, theo dõi heartbeat/mission command/ACK/telemetry, time synchronization và process health. Capture PCAP trên đúng interface; xuất ULog, decoded MAVLink, telemetry, channel trace, attack timeline và logs có clock chung.
+- Teardown idempotent kể cả exception/timeout; kiểm tra topology/container/qdisc không còn orphan. Containernet/Linux cần môi trường Linux/root privileges; không giả định Windows native.
+
+P8 — `P8_run_campaign.py`
+- Thay mock `touch` và `sleep` bằng orchestrator thực gọi P7 dưới run config; kiểm tra return code, timeout, health check, output files không rỗng và manifest/schema validation.
+- Ghi đúng versions thay vì điền version cố định nếu không introspect runtime. Mỗi run phải lưu mission/channel/traffic parameters, frequency/profile/calibration ID, seed, software/container hashes, start/end UTC/monotonic offsets, interface/qdisc evidence, attack events, exit state và checksum artifact.
+- Sinh deterministic run ID hoặc UUID + config hash; parse metadata JSON làm nguồn chuẩn, không dựa vào run-name splitting. Resume/retry phải tránh ghi đè nhầm/duplicate. Tạo status failed/incomplete thay vì “success” nếu artifact lỗi.
+- Cân bằng design; seed phải được truyền đến generator, impairment RNG và simulator. Ghi rõ run nào bị loại và tiêu chí loại.
+
+P9 — `P9_dataset_schema.py`
+- Bỏ dummy telemetry/PCAP-stats/MAVLink tạo ngay trong hàm. Đọc artifact thật đã xác minh từ mỗi run và dừng nếu thiếu/empty. Nếu giữ demo thì chuyển ra fixture riêng và gắn nhãn synthetic, không được đi vào dataset release.
+- Đồng bộ timestamps/clock drift giữa pcap, PX4 ULog, telemetry, MAVLink decode, channel trace và attack-events; ghi nguồn timestamp, timezone, interpolation policy và uncertainty. Không ffill qua khoảng trống dài hoặc outer merge làm trôi nhãn.
+- Định nghĩa rõ window bins/edge/overlap và label semantics (attack active, packet affected, command affected, flight-state impact). Giữ packet-level event intervals; label window phải dựa trên khoảng sự kiện và link packet/time thay vì lấy `max` mù.
+- Tạo ba view đúng tuyên bố: window-level, flow-level nếu có flow hợp lệ, và MAVLink semantic-level; thêm primary keys (`run_id`, time/window/flow/message IDs), unit, missingness flags, capture point/direction, schema version. Lưu raw immutable và transformation provenance.
+- Dùng UTC-aware timestamp, deterministic order/seed khi có xử lý ngẫu nhiên; kiểm tra foreign keys/count conservation, duplicate packets, packet loss/capture drops, label consistency, time bounds và schema.
+
+P10 — `P10_ids.py`
+- Lấy scenario labels từ manifest JSON/schema đã xác thực, không parse tên run bằng index cố định. Tên như `run_001_F1_C1_LOS_T0_Benign_s1` sẽ tách sai `attack_type` bằng cách hiện tại.
+- Xác định label map chuẩn và kiểm tra mọi giá trị được map; unknown labels phải báo lỗi, không mặc định benign. Tách `channel_state`, channel profile, mission, traffic class, attack technique, run/flight/seed.
+- Chỉ dùng feature có sẵn tại inference time; loại run ID, attack event metadata, label-derived fields, post-event telemetry hoặc các cột gây leakage. Phân tích feature leakage/shortcut, nhất là packet counts có thể trực tiếp encode DoS và channel-state/attack balance.
+- E1/E2/E3 phải có split group rõ ràng theo run, flight/mission/channel/seed; kiểm tra lớp xuất hiện ở train/test, stratification, số nhóm tối thiểu, confusion matrix, per-class precision/recall/F1, macro-F1, PR-AUC nếu mất cân bằng và confidence intervals/repeated seeds. Không chỉ in một F1 duy nhất.
+- Thêm baseline đơn giản và lưu split manifest/predictions/config để tái lập. IDS metrics chỉ đánh giá utility của dataset, không chứng minh twin fidelity.
+
+2. CỔNG CHẤP NHẬN TRƯỚC KHI GỌI LÀ DATASET THỰC
+
+Gate 1 — provenance/input: mọi file nguồn có DOI/version/license/checksum; số capture vào-ra được giải trình; không mock lẫn empirical.
+Gate 2 — Layer 1: đơn vị và calibration chain được kiểm tra; holdout theo flight/frequency; model artifact có coverage/limits/uncertainty.
+Gate 3 — Mobility: quỹ đạo/altitude/time đúng nguồn; mission file được PX4/QGC chấp nhận; so sánh trajectory metrics.
+Gate 4 — Link: qdisc được apply và verify; observed packet impairment được ghi; mô hình mapping có calibration data hoặc được gọi rõ là stress-test.
+Gate 5 — Twin: PX4/Gazebo/MAVLink end-to-end hoạt động; PCAP/ULog/telemetry/channel/attack logs thực, đồng bộ thời gian, nonempty và cùng run ID.
+Gate 6 — Dataset/IDS: schema validator và label audit pass; run-level split không leakage; metric lưu đầy đủ. Chỉ sau Gate 1–6 mới scale 300 run.
+
+3. NGUỒN THAM KHẢO HIỆU CHUẨN — PHÂN THEO LAYER VÀ VAI TRÒ
+
+Layer 1 — A2G path loss / channel sounding (nguồn chính cho nhánh hiện tại)
+- Dataset-19: AERPAW, “AERPAW Air-to-ground channel sounding and multipath measurement with a UAV,” Gürses & Sichitiu, SigMF/IQ channel sounding; AERPAW mô tả 9 flights ở nhiều altitude/frequency, 56 MHz Zadoff–Chu và liên kết source code channel sounder/post-processing. Dataset DOI được trang AERPAW liên kết: Dryad DOI 10.5061/dryad.7h44j105p; code: `anilgurses/USRP-Channel-Sounder` (đặc biệt `post_processing/post_process.py` và toàn bộ module phụ thuộc đúng phiên bản). Dùng làm tham khảo phương pháp khôi phục CIR/path loss và metadata; không chỉ chép notebook `PostProcess.ipynb` hoặc lấy mean(|IQ|²) thành dBm.
+- Bài mô hình: A. Gürses, M. L. Sichitiu, “Air-to-Ground Channel Modeling for UAVs in Rural Areas,” Proc. IEEE VTC2024-Fall, DOI 10.1109/VTC2024-Fall63153.2024.10757825. Dùng để đối chiếu định nghĩa, mô hình, fitting và kết quả trong cùng điều kiện; không suy rộng ngoài miền dữ liệu.
+- Dataset-32 nếu có dữ liệu processed: “AERPAW air-to-ground channel sounding and path loss measurement with a UAV at 3.4GHz,” Dryad DOI 10.5061/dryad.2ngf1vj4r. README liệt kê `path_loss_db`, `uav2ground_dist`, metadata/processed CSV/NPZ; dùng làm đường ngắn hơn nếu raw processing Dataset-19 chưa hoàn tất. Dataset-32 là 3.4 GHz, bốn flight xấp xỉ 60 m, không tạo generalization đa độ cao tương đương chỉ vì Dataset-19 có nhiều flight.
+- Maeng (“Impact of 3-D Antenna Radiation Pattern in UAV Air-to-Ground Path Loss Modeling and RSRP-Based Localization in Rural Area,” 2023, DOI 10.1109/OJAP.2023.3322145) chỉ là nguồn bổ sung nếu thật sự truy cập được dữ liệu/processing; hiện không nằm trong code path, không đưa thành dependency bắt buộc và không ghi rằng đã dùng.
+- Công thức chuẩn hóa có thể so sánh: log-distance `PL(d)=PL(d0)+10 n log10(d/d0)+ε`, nhưng chỉ fit sau khi biến đầu vào thật sự là path loss đúng dB. Tham khảo thêm free-space/two-ray/3GPP theo bài Gürses; không bịa A,n,α hoặc dải validity.
+
+Layer 2 — mobility/trajectory/flight timing
+- “AERPAW Find-a-Rover (AFAR) Challenge in December 2023,” Dryad DOI 10.5061/dryad.18931zd4g. README xác nhận GPS logs gồm longitude, latitude, altitude, Unix timestamp; testbed có power/quality logs và attitude. Dùng trajectory thật, position/heading/altitude/speed/time; không tự gán các log đầu tiên vào mission names. AFAR source code/MATLAB `Real_vs_DT.m` hữu ích để tham khảo đối chiếu development DT vs testbed.
+- Hossen et al., “Collection: UAV-Based Wireless Multi-Modal Measurements From AERPAW Autonomous Data Mule (AADM) Challenge in Digital Twin and Real-World Environments,” IEEE Data Descriptions 2026, DOI 10.1109/IEEEDATA.2026.3685296; dataset Dryad DOI 10.5061/dryad.7d7wm3898. Có 33 subfolders testbed flight và paired DT/physical campaign telemetry/link metrics. Dùng bổ sung mobility/speed/altitude/duration và sim-to-real; đây là data mule mission, không phải C2 mission template.
+- UAV-CAS mobility library (Mishra et al., “UAV-CAS: A Calibrated Digital-Twin Dataset for Intrusion Detection in UAV Swarm Networks,” arXiv:2606.17845, 2026) tham khảo cách abstraction Spiral/Grid/Hover-transit/Random và so sánh velocity/altitude distributions. Đây không phải đo vật lý mới, không được dùng thay trace AERPAW.
+- PX4/QGroundControl mission format và PX4 SITL docs là nguồn để xác nhận semantics/syntax mission; chúng xác nhận simulator interface/mission execution, không hiệu chuẩn quỹ đạo thực.
+
+Layer 3 — link performance và mapping RF-to-network impairment
+- AADM Dryad DOI 10.5061/dryad.7d7wm3898 là nguồn ưu tiên để tìm link-quality/SNR và cumulative throughput đồng bộ trong cả DT và testbed. Kiểm tra đúng trường và loại link trước khi sử dụng; chỉ dùng cặp flight/campaign tương thích. Nó không tự cung cấp mọi packet-level RTT/loss của MAVLink.
+- AFAR Dryad DOI 10.5061/dryad.18931zd4g cung cấp power/quality log và GPS/time để kiểm tra xu hướng link theo geometry. Không xem RSS dBm đơn lẻ là delay/loss/rate mapping nếu không có packet throughput/loss/delay đo đồng bộ.
+- Dataset-34, “Reinforcement Learning with 3D UAV Network Digital Twin (RL-AERPAW-DT),” AERPAW/repo RL-AERPAW-DT dùng làm urban 3D/ray-tracing/radio-map, geometry-aware blockage/NLOS stress comparator. Đây là twin/simulation, không phải physical ground truth; không dùng làm nguồn duy nhất fit empirical loss/throughput.
+- AERPAW “FlyPaw: Optimized route planning for scientific UAV missions,” Dryad DOI 10.5061/dryad.0gb5mkm8d có dữ liệu throughput TCP/UDP/iperf và trajectory ở các vị trí; có thể là nguồn bổ sung kiểm tra network throughput nếu protocol, carrier, campaign và telemetry phù hợp. Không trộn số đo khác radio/network conditions vào một calibration không phân tầng.
+- Linux `tc-netem(8)`/`tc(8)` documentation là nguồn vận hành để thiết kế delay/jitter/loss/correlation/rate/reordering/seed và limitations. Đây là tài liệu kỹ thuật về emulator, không phải dữ liệu hiệu chuẩn quan hệ SNR→network KPI. Kiểm định rate/delay/loss bằng packet captures/counters hai đầu.
+
+Layer 4 — end-to-end fidelity / DT-vs-field
+- AFAR paper/dataset: B. Chatterjee et al., “Wireless Signal Source Localization by Unmanned Aerial Vehicle Using AERPAW Digital Twin and Testbed,” IFIP Networking 2024, DOI 10.23919/IFIPNetworking62109.2024.10619824; dataset DOI như trên. Dùng paired development DT/testbed với metric và schema đúng README; không xem power log toàn dataset là holdout nếu đã tune mô hình trên đó.
+- AADM paired Digital Twin + real-world campaign (Dryad 10.5061/dryad.7d7wm3898) có synchronized telemetry/link-quality/throughput; phù hợp hơn cho kiểm tra sim-to-real tổng thể nếu xác định cặp/variables match.
+- UAV-CAS Layer 3 packet-level replay/Layer 4 distributional fidelity (README/repository, GitHub `Sripathm2/Collaborative-UAV-Dataset`; paper arXiv:2606.17845) dùng làm tham khảo cấu trúc kiểm định/metrics. Không coi code/hệ số UAV-CAS là ground truth cho C2 MAVLink.
+
+Testbed / P7–P8 (đây là kiểm chứng triển khai, không phải RF calibration)
+- PX4 User Guide: SITL/Gazebo simulation và log/ULog documentation để chạy, xác minh trạng thái và trích telemetry.
+- MAVLink official protocol / Mission Protocol docs để xác minh message/sequence/ACK/mission semantics.
+- Linux `tc-netem(8)` và `tc(8)` để cấu hình/đọc qdisc; thêm pcap, interface counters và `tc -s qdisc` làm bằng chứng impairment. Không thay thế channel dataset.
+- Kwon et al., “Empirical Analysis of MAVLink Protocol Vulnerability for Attacking Unmanned Aerial Vehicles,” IEEE Access 2018, DOI 10.1109/ACCESS.2018.2863237 và Highnam et al., “An Uncrewed Aerial Vehicle Attack Scenario and Trustworthy Repair Architecture,” DSN-W 2016, DOI 10.1109/DSN-W.2016.63 dùng cho attack semantics/ground-truth C2, không dùng fit propagation.
+
+TRẢ LỜI CÂU HỎI “CÓ CẦN NGUỒN HIỆU CHUẨN LAYER KHÁC KHÔNG?”
+- Có. Layer 2 cần AFAR và/hoặc AADM để calibration/validation trajectory; chỉ dùng quỹ đạo tự tạo không đủ căn cứ gọi mobility empirical.
+- Layer 3 cần nguồn đồng bộ link-quality + throughput/loss/delay thực (ưu tiên AADM, bổ sung AFAR/FlyPaw nếu điều kiện phù hợp) hoặc phải ghi các profile tc là stress-test kỹ thuật, không phải mô hình RF đã hiệu chuẩn. Dataset-34 chỉ bổ sung environmental/NLOS simulation.
+- Layer 4 cần paired DT–physical trace (AFAR/AADM khi đúng campaign) và metric fidelity quy định trước; đây là validation chứ không phải hiệu chuẩn hệ số tùy ý.
+- P7–P8 cần docs chuẩn PX4/MAVLink/Linux tc cùng test evidence. Không cần dataset RF khác để chứng minh qdisc đã apply, nhưng cần AERPAW/reference link traces để chứng minh impairment profile có tính đại diện.
+- Security/IDS ground truth cần nguồn/taxonomy C2/MAVLink (Highnam/Kwon, MAVLink protocol docs) và self-generated attack event records xác nhận được; các nguồn này không thay calibration vô tuyến.
+
+4. KẾ HOẠCH THỰC HIỆN ƯU TIÊN VÀ ĐIỀU KIỆN DỪNG
+
+Giai đoạn 1 — Chốt source/layout/schema: pin version/commit của Gürses post-processing; đối chiếu notebook với module code; lấy đầy đủ module phụ thuộc mà `post_process.py` import (đặc biệt xác minh `utils.pathloss`, `utils.channel_models`; thống nhất tên package `utils`, không dùng nhầm `ultis`). Tạo data coverage table và data ledger. Nếu thiếu module/source/version thì không khẳng định chạy được official calibration.
+
+Giai đoạn 2 — Hoàn tất Layer 1 trước bất kỳ campaign attack nào: xử lý một flight end-to-end từ official processor hoặc processed CSV/NPZ; kiểm tra path loss/power, unit, reference/gain, trajectory matching, số capture. So kết quả với figure/table/CSV của nguồn. Khi đạt đối chiếu mới xử lý hết flights; tạo grouped holdout và model card/JSON; remove mock fallback.
+
+Giai đoạn 3 — Mobility và link: map AFAR/AADM columns, dựng trajectory-preserving import, so mobility metrics; sau đó dùng AADM/AFAR/FlyPaw link KPI phù hợp để fit/check link-to-network mapping. Nếu thiếu synchronized data, khóa P5 ở named stress-test profiles và không tuyên bố empirical mapping.
+
+Giai đoạn 4 — Xây testbed thật: P7 phải chạy PX4 SITL/Gazebo/MAVLink/GCS thật, P5 apply qdisc trên path cụ thể; tạo 1 benign pilot. Verify pcap/ULog/MAVLink/telemetry/attack-event synchronization và qdisc. Không được đi tiếp nếu artifact mock/empty.
+
+Giai đoạn 5 — Dataset builder/IDS: P8 orchestration thật, P9 đọc artifacts thật và kiểm định labels/schema, P10 dùng manifest labels và splits theo run/flight. Làm pilot nhỏ trước; chỉ scale 300 runs sau khi acceptance gates 1–6 đạt.
+
+Nguyên tắc báo cáo: mọi số calibration ghi rõ dataset DOI/version, flight IDs, frequency, altitude/distance domain, real/DT/simulated provenance, preprocessing source/version/commit, uncertainty và holdout. Phân biệt “measured/empirically calibrated” với “derived/modelled”, “network-emulated” và “synthetic stress scenario”. Không mô tả file code tham khảo là bằng chứng model đã hợp lệ trước khi đối chiếu.
+
+4.1. TRẠNG THÁI MÃ TRƯỚC KHI TÍCH HỢP PX4 SITL (2026-10-03)
+
+Phạm vi triển khai thực tế trong `src/pipeline` đã được thu hẹp và gắn nhãn trung thực: đây là network-level emulation dùng C2-like JSON/UDP, không phải PX4 SITL/Gazebo/MAVLink và không phải RF digital twin đã hiệu chuẩn. Các kết quả IDS chỉ được báo cáo trong phạm vi traffic emulation này.
+
+- P2 (`P2_process_gurses_raw.py`) xuất `gurses_iq_descriptors.csv`: RMS IQ dBFS-like, không đổi tên thành RSRP/dBm. Không tuyên bố matched-filter/channel estimate do chưa khôi phục đầy đủ waveform reference, oversampling và chuỗi xử lý sounder.
+- P3 (`P3_layer1_propagation_gurses.py`) fit riêng từng carrier từ các capture AERPAW hiện có (3.564, 3.620, 3.686 GHz), split theo flight folder, và lưu `layer1_relative_trend.json`. Hệ số khoảng cách là xu hướng khám phá từ raw-IQ level, không phải path-loss calibration. Không sử dụng hằng số TX 20 dBm hay `C_CALIB` để tạo RSRP.
+- P4 chọn ba file AFAR GPS trace xác định theo thứ tự ổn định, lưu CSV có timestamp, không gắn nhãn sai là square patrol/hover. Anchor GCS dùng tọa độ loc1/loc2/loc3 ghi trong AFAR `main.m`; altitude vẫn là tương đối so với mẫu đầu và không được gọi là AGL đã xác minh.
+- P5 không diễn giải `dataset34_snr_profile.csv` một cột thành blockage/LOS attenuation. Các profile C1–C4 chỉ là kịch bản impairment stress-test; chưa có hiệu chuẩn thực nghiệm delay/loss/rate theo SNR.
+- P7/P8/P9/P10 tạo UDP emulation, telemetry CSV theo trace, event log và PCAP ở GCS endpoint; P9 tạo packet/flow/window views với nhãn từ attack event interval và source IP. T1 là lặp datagram thử nghiệm, T2 là false C2-like state injection, T4 là UDP flood có giới hạn. T3_MITM bị loại khỏi campaign cho tới khi có proxy on-path thực sự. Không tạo MAVLink semantic view.
+- P10 giữ các lần lặp cùng scenario trong một group, bắt buộc class coverage và lưu metrics JSON. Pipeline fail-closed khi thiếu artifacts, fit carrier hoặc class cần thiết.
+- `P3_layer1_propagation.py` legacy bị vô hiệu hóa vì nhầm raw-IQ với RSRP và dùng lỗi đánh giá in-sample. `P2_mock_maeng_data.py` chỉ sinh synthetic demo và không thể tạo/đại diện dataset Maeng.
+
+Các giới hạn không thể tự sửa chỉ bằng code: phải có calibration traceable của TX/RX và khôi phục đúng waveform/sounder để có absolute received power; phải có dữ liệu đồng bộ channel-quality với delay/loss/throughput để fit P5; phải triển khai PX4/Gazebo/MAVLink thật trước khi tuyên bố twin/testbed fidelity hoặc MAVLink attack effectiveness. Không lấy output hiện tại làm bằng chứng đáp ứng các mục đó. Xem `src/pipeline/README.md` để biết dependencies, lệnh chạy và giới hạn runtime.
+
+4.2. KẾT QUẢ TÍCH HỢP CYBER-PHYSICAL SITL — THAY THẾ TRẠNG THÁI 4.1 (2026-10-03)
+
+Yêu cầu: khớp đầu vào và phụ thuộc để đường chạy có thể được mô tả là software cyber-physical Digital Twin prototype. Việc này không tự chứng minh fidelity so với UAV vật lý, và không biến Layer 1/3 thành calibration RF.
+
+Luồng dữ liệu đã được nối ở mức source:
+1. P2/P3 xuất `data/model_fits/layer1_relative_trend.json`, vẫn là exploratory raw-IQ distance trend theo carrier, không phải dBm/RSRP hay path-loss truth.
+2. P4 xuất ba AFAR route CSV (`F1_afar_trace_1.csv`…`F3_afar_trace_3.csv`) cùng manifest. Các CSV được P7 sử dụng trực tiếp làm route source; không còn mismatch đòi `.plan` QGC không được sinh ra. `gcs_mavsdk_mission.py` đọc CSV, chuyển relative altitude thành mission altitude bằng baseline 15 m (giá trị này là mapping an toàn cho mô phỏng, không phải altitude AGL đo được), upload và chạy mission qua MAVSDK.
+3. P7 (`P7_sitl_c2_twin.py`) là backend P8 gọi: PX4 SITL + Gazebo `gz_x500`, MAVLink Router, GCS MAVSDK, Containernet/TCLink. P7 đòi telemetry live; telemetry không được thay bằng route source. Telemetry position trong lúc mission đang chạy được ghi theo thời gian thực; P7 tính khoảng cách UAV–anchor và điều chỉnh delay/loss/rate qdisc hai chiều theo vị trí quan sát được.
+4. P5 dùng trend Layer 1 duy nhất theo tần số phù hợp làm hệ số tương đối cho các profile C1–C4. Đây là qdisc stress profiles có giả định rõ, không phải mapping đo được RF→SNR→PER/throughput/delay. Tên C1_LOS…C4_NLOS không hàm ý đã kiểm định trạng thái LOS/NLOS.
+5. Campaign SITL hiện nhận `T0_Benign` và `T4_DoS`. DoS là UDP flood giới hạn số gói/thời gian vào UDP endpoint GCS, không phải MAVLink payload attack và chưa chứng minh tác động flight control. Replay/FDI/MITM không còn được đưa vào default SITL campaign vì chưa triển khai đúng semantics/protocol MAVLink.
+6. P7 cung cấp `flight_telemetry.csv`, `c2_traffic.pcap`, `attack_events.jsonl`, `twin_scope.json`, log process, ULog (best effort). P9 đọc capture/events/telemetry thật, tạo packet/flow/window views; P10 dùng telemetry live và chỉ report class quan sát được. Không tạo data mock làm artifact của run.
+7. P8 mặc định là 360 runs nối tiếp (3 route × 4 qdisc profiles × benign/DoS × 3 carrier selection × 5 repetitions). Có thể giới hạn bằng các tham số `--mission`, `--channel`, `--traffic`, `--frequency_ghz`, `--repetitions`; phải chạy pilot 1 mission trước khi mở toàn bộ campaign.
+
+Files tích hợp/điều chỉnh:
+- `src/pipeline/P4_layer2_mobility.py`: output CSV/manifest là route contract.
+- `src/pipeline/P7_sitl_c2_twin.py`: thay code SITL prototype thiếu contract bằng backend được P8 gọi, xác thực route/model/image, khởi chạy SITL/router/GCS/PCAP, qdisc theo telemetry live, scope/artifacts/fail-closed teardown.
+- `src/pipeline/scripts/gcs_mavsdk_mission.py`: bỏ parser QGC `.plan` không tương thích; dùng P4 CSV, upload mission MAVSDK, ghi telemetry live và các cột tương thích P9.
+- `src/pipeline/P8_run_campaign.py`: chuyển từ P7 C2-like JSON UDP sang P7 SITL; kiểm tra đúng artifacts; mặc định bỏ attack chưa có protocol implementation.
+- `src/pipeline/P9_dataset_schema.py`, `P10_ids.py`: mô tả đúng capture MAVLink transport và cyber-physical scope; feature semantics P10 chuyển sang telemetry PX4 live.
+- `src/pipeline/Dockerfile.sitl`: image riêng Ubuntu 22.04, PX4 v1.14.3, Gazebo Garden, mavlink-router, MAVSDK, tcpdump/hping3. Dockerfile node cũ không thỏa dependencies.
+- `src/pipeline/run_all.sh`, `requirements.txt`, `README.md`: gọi workflow mới và nêu dependency/giới hạn rõ ràng.
+
+Yêu cầu runtime để hiện thực hóa phụ thuộc: Linux x86_64, Docker + Mininet/Containernet Docker support + quyền root/CAP_NET_ADMIN/qdisc; build `uav-cas-sitl:latest` bằng `docker build -t uav-cas-sitl:latest -f src/pipeline/Dockerfile.sitl .`; Python packages trên host; đầy đủ AERPAW IQ và AFAR source tại path pipeline đang dùng. `uav-cas-node:latest` cũ không được tái dùng vì thiếu PX4/Gazebo/MAVSDK/router. PX4 SITL chạy `HEADLESS=1 make px4_sitl gz_x500`, với home origin lấy từ điểm route đầu; MAVSDK dùng UDP 14540 và Router chuyển MAVLink GCS stream từ cổng SITL 14550 sang GCS. Đây khớp với cổng/target được ghi trong scripts; cần xác nhận trên pilot do source review không chứng minh router/PX4 startup thực tế.
+
+TRẠNG THÁI XÁC NHẬN: chỉ static integration/source edits; chưa build Docker image, chưa chạy Linux/Containernet/Gazebo pilot, chưa xác nhận MAVLink router port negotiation, mission acceptance/landing, qdisc counters, pcap decode, ULog copy, hay P9/P10 end-to-end. Vì vậy có thể gọi kiến trúc/mã hiện tại là “software cyber-physical Digital Twin prototype / integrated SITL twin path”, nhưng chưa gọi là validated Digital Twin hoặc physical-equivalent twin. Cần hoàn tất pilot Gate 5 và paired DT–field validation ở mục 2 và 4 trước khi đưa ra tuyên bố mạnh hơn.
+
+Nguồn kỹ thuật dùng để đối chiếu dependency/interface (không phải calibration dataset): PX4 User Guide v1.14 Gazebo: `https://docs.px4.io/v1.14/en/sim_gazebo_gz/` (lệnh `HEADLESS=1 make px4_sitl gz_x500`, Gazebo mới); MAVSDK connection docs: `https://github.com/mavlink/MAVSDK-docs/blob/main/en/cpp/guide/connections.md` (UDP 14540 cho offboard SDK, 14550 cho GCS); MAVLink Router upstream config: `https://github.com/mavlink-router/mavlink-router/blob/master/examples/config.sample` (UDP server/client endpoint). Các trang trên chỉ xác thực cách gọi/port pattern; pilot vẫn bắt buộc để xác thực wiring cụ thể trong Containernet.
+
+4.3. ĐIỀU CHỈNH CALIBRATION GÜRSES VÀ AADM HOLDOUT (2026-10-03; ĐÃ ĐƯỢC MỤC 4.4 THAY THẾ CHO LAYER 1)
+
+Mục tiêu triển khai theo yêu cầu: fit Layer 1 chỉ từ miền đo Gürses/AERPAW; dùng các flight AADM tương thích để đánh giá độc lập Layer 3. Không gộp AADM vào fit Gürses và không xem AADM là cùng cấu hình PHY nếu chưa xác minh carrier, radio, antenna, công suất phát, bandwidth và calibration.
+
+- Workspace có raw SigMF ở `AERPAW Air-to-ground channel sounding/` (metadata mẫu: f=3.564 GHz, sample rate 56 MHz, waveform ZC, khoảng cách/định vị trong từng capture). `src/pipeline/P2_process_gurses_raw.py` chỉ tính IQ RMS dBFS-like; đầu ra này không phải input hiệu chuẩn.
+- `ultis/post_process.py` là bộ xử lý tham khảo/nguồn Gürses nhưng hiện chưa đủ môi trường chạy độc lập: import package `utils` (không khớp tên thư mục `ultis`) và các module như `utils.pathloss`, `utils.channel_models` không có trong cây hiện tại; kiểm tra thêm dependencies của source (bao gồm `commpy`). Phải khôi phục đúng repository/version và toàn bộ dependency của [USRP-Channel-Sounder](https://github.com/anilgurses/USRP-Channel-Sounder), xử lý raw SigMF bằng luồng đó, đối chiếu `processed.csv`, `pl_valid`, `avg_pl`, tần số, distance và output/figure tham chiếu trước khi gọi dữ liệu là source-processed path loss.
+- `src/pipeline/P2_collect_gurses_processed.py` gom các file `processed.csv` do source processor tạo, yêu cầu trường path-loss gốc và thêm `flight_id` theo thư mục flight; không xử lý IQ thay cho source DSP.
+- `src/pipeline/P3_layer1_propagation_gurses.py` đã chuyển sang fail-closed contract: cần `flight_id, dist, avg_pl, center_freq, pl_valid`; lọc bản ghi path loss hợp lệ; nhận đúng `center_freq` MHz của Gürses source processor (hoặc Hz/GHz), fit Close-In (CI) log-distance với FSPL tại 1 m cố định theo từng carrier; split theo flight, báo RMSE/MAE/bias trên flight chưa fit; ghi `data/model_fits/layer1_gurses_calibrated.json`. Artifact là fit path loss theo output processor, không phải absolute received-power calibration; miền hiệu lực bị chặn theo frequency/distance/altitude/flight coverage được báo cáo trong JSON.
+- `src/pipeline/P5_layer3_link.py` có thể lấy n từ model Gürses vừa fit, nhưng chỉ biến suy hao theo khoảng cách thành các profile `tc-netem` giả định đã khai báo. Không được gọi delay/loss/goodput/rate mapping là calibrated từ path loss.
+- `src/pipeline/P7_sitl_c2_twin.py` ưu tiên model calibrated khi artifact tồn tại. `run_all.sh` yêu cầu `GURSES_PROCESSED_CSV` và fit Layer 1 trước khi chạy campaign, tránh lấy IQ RMS làm đường fit mặc định.
+- Thêm `src/pipeline/P6_evaluate_layer3_aadm.py`: nhận CSV AADM đã ghép đồng bộ theo telemetry và link log, fit SNR–log(distance) chỉ trên train flights, báo held-out flight metrics theo base station; có thể tính thêm mapping measured `goodput_mbps` nếu nguồn cung cấp đúng throughput rate. Script hiểu schema do `uav-cas/Scripts/0-step1_process_aadm.py` xuất (`snr_dB`, `power_dBm`, `distance_to_bs_m`, `bs_id`, `flight_id`). AADM hiện chỉ chắc chắn cho đánh giá SNR/power theo hình học; không thể gọi là throughput calibration nếu chỉ có power/SNR hay bộ đếm cumulative download chưa chuyển đúng thành tốc độ. Script AADM nhận `--output_dir` để kết quả không phụ thuộc working directory.
+- `uav-cas/Scripts/0-step1_process_aadm.py` đã được sửa tọa độ LW1–LW4 theo script post-processing của từng flight AADM tháng 9, bỏ hằng số khoảng cách kinh độ phẳng bằng haversine và loại timestamp GPS trùng trước khi nội suy; khoảng cách vẫn là ground horizontal (không có đủ datum/elevation để khẳng định slant range 3D). Thêm `--output_dir` để không ghi output ngoài workspace theo current directory.
+- Đây là đánh giá độc lập trên AADM, không phải cross-validation Gürses→AADM: khác chiến dịch/thiết bị/antenna và chưa chứng minh tương đương carrier/link budget. Không transfer hệ số tuyệt đối hoặc kết luận độ chính xác path loss xuyên domain chỉ dựa vào AADM. Layer 3 phần emulator hiện được đánh giá bằng baseline SNR–distance AADM; hiệu chuẩn qdisc PHY→delay/loss/rate vẫn đòi KPI packet/application đồng bộ.
+- `src/pipeline/README.md` ghi schema/lệnh. `run_all.sh` chạy Layer 1 khi `GURSES_PROCESSED_CSV` được trỏ tới consolidated CSV; `AADM_PROCESSED_CSV` là tùy chọn để chạy P6. Chưa chạy script/dataset ở bước chỉnh sửa này; chưa xác minh post-processor vì thiếu module/dependency và chưa tạo consolidated CSV chính thức. Cần xử lý trước khi artifact calibration được tạo.
+
+Các bài/nguồn tham khảo cụ thể cho bước này:
+1. Anıl Gürses et al., “Air-to-Ground Channel Modeling for UAVs in Rural Areas,” IEEE VTC2024-Fall, DOI 10.1109/VTC2024-Fall63153.2024.10757825 — đối chiếu mô hình path-loss, định nghĩa và điều kiện đo.
+2. Gürses AERPAW Channel Sounder source, `anilgurses/USRP-Channel-Sounder`, nhất là `post_processing/post_process.py` cùng mọi module được import — chuẩn hóa luồng DSP/metadata; phiên bản upstream cần được pin và khôi phục đủ, không lấy bản chép thiếu module làm bằng chứng hiệu chuẩn.
+3. Dataset Gürses/AERPAW Dryad DOI 10.5061/dryad.7h44j105p — raw SigMF và metadata đo; output phải truy nguyên về capture/flight, frequency và location.
+4. Hossen et al., “Collection: UAV-Based Wireless Multi-Modal Measurements From AERPAW Autonomous Data Mule (AADM) Challenge in Digital Twin and Real-World Environments,” IEEE Data Descriptions 2026, DOI 10.1109/IEEEDATA.2026.3685296; dataset Dryad DOI 10.5061/dryad.7d7wm3898 — nguồn AADM testbed cho telemetry, USRP SNR/power và các trường cumulative download; chỉ dùng network rate nếu tính đúng từ nguồn/cửa sổ thời gian và tương thích link.
+
+4.4. KẾ HOẠCH TRIỂN KHAI HIỆN HÀNH — DATASET-32 LAYER 1 (2026-10-04)
+
+Mục này là quyết định hiện hành và thay thế mọi mô tả trước đó trong plan về việc dùng Dataset-19/raw IQ Gürses, raw-IQ relative fit, hoặc nhánh post-processor Gürses làm nguồn chính Layer 1. Không xóa các thư mục dữ liệu cũ khỏi workspace; chúng chỉ còn làm tư liệu tham khảo và không được gọi trong pipeline mặc định.
+
+- Nguồn duy nhất cho Layer 1: Dataset-32 tại `Dataset-32 AERPAW Air-to-Ground Channel Sounding and Path Loss Measurements at 3.4 GHz with Linear and Zigzag UAV Trajectories/`, Dryad DOI `10.5061/dryad.2ngf1vj4r`. Dùng `path_loss_db`, `uav2ground_dist` (3D distance), tọa độ và altitude từ bốn CSV f10–f13; dùng SigMF metadata để xác minh flight/campaign và carrier 3.4 GHz. Không tính lại path loss từ IQ RMS.
+- P2 `P2_prepare_dataset32.py`: fail-closed nếu thiếu CSV/metadata, schema không khớp, campaign không đồng nhất trong flight, có giá trị thiếu/không hữu hạn, khoảng cách không dương hoặc carrier không đúng 3.4 GHz. Xuất `data/processed/dataset32/dataset32_pathloss.csv` cùng manifest/hash đầu vào.
+- P3 `P3_layer1_dataset32.py`: fit `PL = flight_offset + beta*log10(d_3D) + residual`, equal-weight theo flight và loại offset riêng flight để các mức path loss khác nhau giữa flight không làm sai slope. Validation là leave-one-flight-out, demean trong flight held-out; do đó RMSE/MAE chỉ đánh giá xu hướng tương đối theo khoảng cách, không phải khả năng dự đoán absolute PL cho flight mới. Ghi model card vào `data/model_fits/layer1_dataset32_pathloss_fit.json`.
+- Kiểm chứng lần đầu trên workspace: 136,987 hàng hợp lệ/4 flight; miền khoảng cách xấp xỉ 54.89–444.60 m; altitude thu xấp xỉ 54.84–61.09 m AGL. Slope equal-flight-weighted khoảng 25.78 dB/decade (n≈2.578). Leave-one-flight-out trend RMSE theo flight khoảng 2.88–4.13 dB; chỉ có 4 đơn vị nhóm độc lập nên uncertainty/khả năng tổng quát hóa còn hạn chế. Đây là empirical path-loss distance slope từ trường processed do nguồn cung cấp; tài liệu hiện có không đủ chứng minh traceable absolute TX/RX calibration.
+- P5/P7 đọc provenance Layer 1 và dùng carrier 3.4 GHz để gate campaign, nhưng không truyền slope Dataset-32 sang qdisc: route SITL hiện không có điều kiện radio/link-budget/altitude khớp phép đo. Delay/loss/rate là stress profiles được khai báo. P7/P8 từ chối các carrier ngoài 3.4 GHz; trường tần số trong run metadata không đồng nghĩa USRP/RF waveform thật được mô phỏng bởi SITL. Không suy rộng sang carrier khác, môi trường khác hoặc độ cao khác.
+- `run_all.sh` mặc định gọi P2 Dataset-32 → P3 Dataset-32 → (tùy chọn) P6 AADM → P4 mobility → P8/P7 SITL → P9/P10. Biến `DATASET32_DIR` có thể trỏ tới bản Dataset-32 tương đương; không còn `LAYER1_MODE`, `GURSES_RAW_DIR`, `GURSES_PROCESSED_CSV` hay nhánh IQ Gürses trong luồng chạy.
+- Phạm vi tuyên bố: có thể gọi đây là fit/hiệu chỉnh thực nghiệm slope path loss cho miền Dataset-32 với đánh giá flight-grouped nội bộ; chưa phải absolute RF calibration traceable, chưa là full calibrated digital twin. Muốn tăng claim cần thông tin uncertainty/gain/link-budget từ tác giả hoặc calibration lab, thêm campaign độc lập, và dữ liệu đồng bộ để fit Layer 3.
+- Run xác nhận lần này chỉ xử lý P2/P3 cục bộ; Python syntax compile đạt. Chưa chạy PX4/Gazebo/Containernet campaign, không tuyên bố đã xác nhận P7–P10 end-to-end.
+
+4.5. TÍCH HỢP DATASET 3.6 GHz CIR VÀ ERICSSON 5G NSA (2026-10-04)
+
+Mục này bổ sung hai nguồn đã có trong workspace; Dataset-32 vẫn là nguồn lõi 3.4 GHz cho campaign SITL hiện tại. Hai nhánh sau chạy song song để tăng bằng chứng thực nghiệm, không trộn carrier/công nghệ.
+
+A. Measured A2G Channel Dataset (CIR) in Multiple Scenarios
+- Vị trí mặc định `Measured A2G Channel Dataset (CIR) in Multiple Sce/`; nguồn: Li et al. (2025), “Air-to-ground channel dataset via UAV-aided measurements in multiple scenarios,” Data in Brief 63, 112086, DOI 10.1016/j.dib.2025.112086; dữ liệu Mendeley DOI 10.17632/8p6r8ft4fz.2.
+- Ba môi trường (sports field, farmland, over-water), các độ cao nguồn 10/15 m và 3.6 GHz. Dùng Appendix `PL_data` `.mat` do tác giả cung cấp để fit riêng; không gán CIR bins dB trong workbook thành absolute PL. Raw CIR được tóm tắt multipath riêng.
+- P2 `P2_prepare_a2g36.py` xuất `data/processed/a2g36/a2g36_pathloss.csv`, CIR summary và manifest/hash nguồn. P3 `P3_layer1_a2g36.py` fit slope log-distance within-group, equal group weighting, leave-one-scenario-altitude-group-out; demeaned holdout chỉ xác nhận xu hướng, không xác nhận absolute offset xuyên campaign.
+- Không ghép pooled với Dataset-32: carrier/môi trường/độ cao/thiết bị khác nhau. Sáu source files không đồng nghĩa sáu chiến dịch độc lập; không suy ra altitude law tổng quát chỉ từ 10/15 m.
+
+B. Ericsson 5G NSA network RF and throughput measurements on AERPAW
+- Vị trí mặc định `Dryad/`; Asokan et al. (2025), Dryad DOI 10.5061/dryad.wh70rxx06. Dataset gồm LTE/NR RSRP, SINR, NR CQI/MCS, throughput Mbps, GPS/timestamp; campaign zigzag 30 m theo README, orientations yaw45/yaw315, Ericsson NSA/Quectel modem.
+- P2 `P2_prepare_aerpaw5g.py` chuẩn hóa LTE và NR riêng. RSRP làm timestamp anchor, KPI ghép nearest tối đa 2 s và lưu sai khác thời gian; distance tới LW1 là horizontal geodesic từ anchor trong `example.m`; altitude giữ nguyên source value, không tự chuyển thành AGL.
+- P3 `P3_evaluate_aerpaw5g.py` báo thống kê LTE/NR, heldout theo orientation cho xu hướng RSRP-distance (demeaned), và hồi quy NR throughput-vs-SINR train orientation để chấm heldout. Chỉ có hai orientations của một campaign nên đây là kiểm tra thăm dò nội-campaign, không phải validation tổng quát.
+- Đây là KPI mạng Ericsson 5G NSA, không phải MAVLink C2. Không suy RTT/loss/jitter từ throughput/SINR, không transfer mapping sang radio C2 khác, không mở rộng carrier cho SITL/P8.
+
+C. Tích hợp code, output và claim
+- `run_all.sh` tự nhận hai thư mục mặc định, override qua `A2G36_DIR`/`AERPAW_5G_DIR`; chạy P2/P3 reference branches cả trong chế độ `LAYER1_ONLY=1`, trước khi dừng và không khởi chạy SITL. `requirements.txt` thêm `openpyxl`; SciPy đọc MAT đã là dependency.
+- Artifacts: `data/model_fits/layer1_a2g36_pathloss_fit.json`, `data/processed/a2g36/a2g36_manifest.json`, `data/model_fits/aerpaw_5g_kpi_holdout.json`, `data/processed/aerpaw5g/aerpaw_5g_manifest.json`.
+- Có thể tuyên bố propagation trend riêng Dataset-32 3.4 GHz và A2G 3.6 GHz trong coverage từng bộ; KPI LTE/NR/throughput riêng theo Ericsson campaign. Chưa thể gọi là calibrated end-to-end UAV–GCS MAVLink twin: còn thiếu đo đồng bộ đúng C2 link gồm radio/antenna/config, geometry, signal, packet send/receive, RTT/jitter/loss/goodput/qdisc và các cặp run thực–twin cho cùng mission. P5/P7 qdisc vẫn stress-only.
+- Trạng thái phiên này: nhánh Ericsson 5G P2/P3 đã chạy trên hai yaw folders, sinh 11,465 dòng KPI chuẩn hóa (5,847 LTE; 5,618 NR; 5,618 NR throughput match) và holdout report; nhánh 3.6 GHz chưa chạy trong Python runtime hiện có vì thiếu SciPy để đọc `.mat` (dependency đã khai báo trong requirements). Chưa build SITL image, chưa chạy Linux campaign; 3.6 GHz model card chưa được sinh.
+
+4.6. PHẠM VI CUỐI — DIGITAL TWIN MÔ PHỎNG, HIỆU CHỈNH BẰNG DATASET CÔNG KHAI (2026-10-04)
+
+Mục này là chỉ đạo hiện hành cho luận văn/paper, thay các đề xuất trước đó buộc phải tự bay UAV hoặc phải có paired field run của nhóm. Nghiên cứu có thể và sẽ chạy hoàn toàn trong PX4 SITL/Gazebo + mạng Linux/Containernet. Việc không bay thật không ngăn chạy mô phỏng; điều kiện khoa học là giới hạn từ ngữ “calibrated” vào các layer có dữ liệu đo tham chiếu và holdout phù hợp. UAV-CAS cũng xây network digital twin bằng Containernet và calibrate nhiều layer bằng các campaign đo AERPAW, chứ không phải mỗi người dùng phải bay UAV riêng. Phương pháp tham chiếu là bốn layer: propagation, mobility, link performance chain, end-to-end trace fidelity; phải phân biệt rõ calibration và validation của từng layer.
+
+A. Mô hình khái niệm và claim
+- Tên triển khai nên dùng: “simulation-only PX4/MAVLink C2 software twin with dataset-specific empirical calibration/validation”, hoặc ngắn hơn “partially measurement-calibrated simulation twin”. Sau khi các gates hoàn tất có thể dùng “measurement-calibrated digital twin within the validated domains”.
+- “Không đo thực tế” ở đây nghĩa là nhóm không cần thu chiến dịch vật lý của riêng mình. Dataset-32, 3.6 GHz A2G, AERPAW 5G, AFAR và AADM là các phép đo/tham chiếu thực nghiệm công khai; chúng vẫn là evidence thực nghiệm.
+- Không nói twin này mô phỏng RF PHY thật nếu backend chỉ Linux/Containernet + `tc/netem`. Không nói hiệu chuẩn end-to-end MAVLink/C2 nếu delay/loss/jitter/goodput được gán bằng stress profile không fit từ traffic/link KPI C2 tương thích. Không gọi là physical-equivalent twin. Nêu digital twin ở mức software/emulation twin, với phạm vi subsystem và miền đo cụ thể.
+- Dataset 5G NSA không tương đương MAVLink C2; Dataset A2G 3.6 GHz không cùng carrier với Dataset-32; Dataset 3.4 GHz không hiệu chuẩn 3.6 GHz; số lượng dòng lớn trong một chuyến bay không phải số quan sát độc lập lớn.
+
+B. Dataset và đúng vai trò trong phiên bản hiện tại
+| Dataset | Layer/mục đích | Điều được hiệu chuẩn/đối chiếu | Không được suy ra |
+|---|---|---|---|
+| AERPAW Dataset-32, 3.4 GHz | L1 core propagation | Within-flight path-loss-vs-distance slope; holdout theo flight; miền Lake Wheeler, khoảng 55–445 m, khoảng 55–61 m AGL | Absolute PL/RX power traceable; mô hình nhiều độ cao; qdisc delay/loss/goodput |
+| Measured A2G CIR, 3.6 GHz | L1 độc lập/cross-domain reference | PL source-processed theo 3 môi trường × 2 độ cao; raw CIR dùng để phân tích multipath khi source processing đủ rõ | Pool chung với 3.4 GHz; absolute RF power tự hiệu chuẩn; altitude law tổng quát |
+| AFAR AERPAW | L2 mobility; có thể đối chiếu DT/testbed trace nếu split/provenance đúng | GPS/time/altitude route trace, nguồn transmitter và mobility; AFAR dataset có development DT và testbed thực | Calibration phổ quát của route PX4; dùng power để external validation nếu đã dùng power tune |
+| AADM AERPAW | L2/L3 reference evaluation | Flight/GPS, SNR/link quality và controller-reported data-mule rate; P6 grouped by flight | MAVLink C2 RTT/loss/jitter/goodput hoặc cùng modem/link budget với twin |
+| Ericsson 5G NSA Dryad | L3 LTE/NR-specific KPI reference | LTE/NR RSRP/SINR, NR CQI/MCS, throughput Mbps; holdout yaw45/yaw315 exploratory | Mapped KPI cho MAVLink qua radio khác; loss/RTT/jitter nếu không có cột đo tương ứng |
+| Dataset-34 RL-AERPAW-DT (nếu dùng) | Geometry/ray-tracing simulation comparator | Scenario/LOS-NLOS sensitivity hoặc simulation-to-simulation comparison | Ground-truth measurement độc lập |
+| Maeng / Dataset-3 / AirScope | Không nằm trong pipeline hiện hành | Có thể ghi future work nếu không truy cập được | Không tạo dependency hoặc claim rằng đã dùng |
+
+C. Tóm tắt pipeline code thực tế (lấy `src/pipeline/README.md` và code làm chuẩn; không dùng các kế hoạch lịch sử mâu thuẫn)
+1. Reference processing trước campaign:
+   - `P2_prepare_dataset32.py` kiểm tra CSV + SigMF metadata và tạo bảng chuẩn/manifest. `P3_layer1_dataset32.py` fit model fixed-effect theo flight: `PL = a_flight + beta*log10(d_3D) + error`; leave-one-flight-out và demean test theo flight để đánh giá trend, không absolute offset.
+   - `P2_prepare_a2g36.py` đọc six Appendix `PL_data` MAT arrays; xuất PL table theo scenario-altitude group và thống kê rời rạc CIR workbook. `P3_layer1_a2g36.py` fit riêng slope 3.6 GHz và leave-one-group-out; không gộp với 3.4 GHz. Chưa chạy nhánh này trong Python runtime hiện tại do thiếu scipy; phải cài requirements và sinh artifact trước khi trích kết quả.
+   - `P2_prepare_aerpaw5g.py` ghép LTE/NR RSRP với SINR và KPI NR tương ứng theo timestamp gần nhất ≤2 s, tạo horizontal distance tới LW1, giữ altitude source. `P3_evaluate_aerpaw5g.py` báo descriptive summaries, RSRP-distance demeaned orientation holdout, NR throughput-vs-SINR holdout. Đã chạy: 11,465 rows (5,847 LTE; 5,618 NR; throughput ghép được 5,618 NR). Hai hướng bay vẫn là một campaign và dữ liệu thời gian phụ thuộc.
+   - Nhánh AADM `0-step1_process_aadm.py` + `P6_evaluate_layer3_aadm.py` tạo/đánh giá dữ liệu SNR/rate grouped theo flight khi đầu vào hợp lệ. Không xem rate của data mule là C2.
+2. Mobility và simulation:
+   - `P4_layer2_mobility.py` lấy ba `log.csv` hợp lệ đầu tiên theo thứ tự sort, giảm mẫu tối đa 50 điểm, giữ lat/lon/time và altitude tương đối so với điểm đầu; manifest ghi source file. Đây là replay trace vào simulator, không phải bốn mobility abstractions Spiral/Grid/Hover/Random, cũng không phải mission được chứng nhận bay an toàn.
+   - `P7_sitl_c2_twin.py` khởi tạo PX4 SITL + Gazebo, MAVLink Router, MAVSDK GCS, attacker node, capture PCAP và Containernet; live SITL telemetry được ghi và dùng tính khoảng cách/audit. Đây là simulation/emulation, không phát sóng RF vật lý.
+   - `P5_layer3_link.py` hiện kiểm tra Dataset-32 model/frequency nhưng `get_tc_params` trả profile C1–C4 cố định/seeded. Hệ số pathloss `n` không tham gia tính delay/loss/rate. Do đó link/qdisc Layer 3 của PX4/MAVLink twin hiện là stress-test giả định, không được gọi empirical calibration.
+   - P8 default chỉ `T0_Benign` và `T4_DoS`, 3 routes × 4 channel profiles × 2 traffic × 1 frequency 3.4 GHz × 5 repetitions = 120 runs theo config hiện hành. P7 DoS là hping UDP flood vào GCS UDP endpoint; không phải MAVLink command flood đã chứng minh điều khiển bị chiếm. `T1_Replay`, `T2_FDI`, `T3_MITM` không nằm trong SITL campaign.
+3. Output và IDS:
+   - Mỗi run: PCAP transport, telemetry live SITL, attack event timeline, twin scope/metadata/log và ULog best-effort. P9 parse packet/flow/1s-window, nối telemetry gần nhất; event intervals/IP tạo label. P10 Random Forest dùng 5 feature (altitude relative, speed, packet count, bytes total, distance-to-GCS) và grouped split theo mission/channel/attack. IDS score chỉ đo detectability của dữ liệu mô phỏng này; không là fidelity evidence.
+
+D. Quy trình hoàn thiện để gần UAV-CAS trong giới hạn simulation-only
+Gate 1 — Provenance/QC: checksum nguồn, ghi version/DOI/license, data ledger per-field; verify units/time zone/altitude semantics, TX/RX coordinates and distance definition. Chạy P2/P3 cho Dataset-32, A2G36, 5G và AADM; freeze train/holdout groups trước khi xem test scores.
+Gate 2 — L1 model cards: từng carrier/environment riêng, benchmark Dataset-32/A2G36 với FSPL/log-distance (và mô hình nguồn nếu có cơ sở); báo RMSE/MAE/bias, per-group residual/domain, confidence intervals bằng bootstrap theo flight/group thay vì theo từng sample. Không extrapolate ngoài domain. Vì P5 hiện không dùng beta để tạo qdisc, đánh dấu L1 calibrated/reference nhưng chưa active-coupled trong twin.
+Gate 3 — L2 mobility: phân rõ AFAR `development` (digital twin) với `testbed` (field) trong source selection; chỉ dùng một domain để fit route statistics và giữ domain/campaign khác cho comparison. Ghi timestamp, CRS, altitude source semantics, resampling error, speed/heading distributions. Kiểm tra manifest để xác định P4 đã chọn đúng split trước khi dùng kết quả paper.
+Gate 4 — L3 link chain: chỉ calibrate riêng technology profile khi có paired KPI cần thiết. Với 5G NSA, báo RSRP/SINR/CQI/MCS/throughput cho 5G-specific model; với AADM, báo SNR/rate theo đúng link/source. Để nối vào `tc/netem`, cần target labels delay/loss/jitter/goodput theo thời gian và xác nhận tương thích với scenario. Nếu không có labels, giữ 4 qdisc profiles là declared stress levels và dùng chúng trong controlled sensitivity/robustness, không trong phần calibration score. Không cần tự bay thật cho scope simulation-only.
+Gate 5 — L4 simulator fidelity: định nghĩa observable chung, normalize time/geometry/windowing, rồi so twin output với independent reference traces phù hợp; báo per-run/per-campaign metrics (CDF, median/quantiles, RMSE/MAE, KS/Wasserstein/JSD khi assumptions phù hợp), uncertainty và split. Chỉ so metrics mà cả hai nguồn thật sự có. Nếu không có paired C2 trace thì không báo L4 C2 end-to-end calibrated; báo L4 validation chưa hoàn tất hoặc chỉ “distributional reference comparison” theo subsystem.
+Gate 6 — SITL pilot và reproducible campaign: cài/build container trên Linux, chạy một benign 3.4 GHz route một lần; xác minh mission upload/ACK/telemetry progression, Pcap decode, qdisc counters, run manifest, ULog. Sau đó chạy 120-run matrix nếu mọi pilot gates qua. Máy hiện tại Windows không tự đảm bảo Linux/Containernet dependencies.
+Gate 7 — Dataset/IDS: xác minh labels trên packet/time windows; lưu split manifest, feature list, seeds, package versions; split theo run/scenario/mission/attack, không random sample windows. Report only observed classes; thêm ablation (no telemetry, no channel profile, no attack) và attack/generalization splits. Cân bằng benign/attack ở các mức channel để tránh IDS học shortcut.
+
+E. Tuyên bố paper đề xuất
+- Trước khi chạy SITL trên Linux: “We implement a simulation/emulation pipeline and dataset-specific reference-data processors. Layer-1 Dataset-32 trend fitting and Ericsson-5G KPI holdout processing were executed; the 3.6-GHz MAT branch and end-to-end campaign remain pending.”
+- Sau khi hết Gate 1–6: “A software UAV C2 twin calibrated/validated at the measured subsystems and domains [liệt kê từng miền], with declared stress-only C2 impairment profiles where no compatible delay/loss measurements exist.”
+- Tránh: “full physical twin”, “C2 link fully calibrated”, “RF-accurate PHY”, hoặc “MAVLink attack compromises flight” nếu không có dữ liệu/thí nghiệm tương ứng.
+- Không cần field flight do nhóm thực hiện để hoàn thành simulation-only contribution. Dữ liệu đo công khai là anchor; validation chưa có data tương đương phải trình bày là limitation/future work thay vì dựng số liệu thay thế.
+
+F. Các sai khác cần giữ nhất quán trong mọi tài liệu
+- Pipeline hiện đang có route replay, không có actual terrain/obstacle channel geometry in PX4 world; 15 m baseline trong mission adapter là simulator mapping, không phải measured AGL.
+- `frequency_ghz=3.4` trong P8 là metadata/gate, không có radio PHY transmitter/receiver thật trong Gazebo/Containernet.
+- Tên C1_LOS/C2_Moderate/C3_NLOS/C4_Dynamic là labels cho qdisc scenario profiles, không chứng minh trạng thái LOS/NLOS. Giá trị delay/loss/rate hiện là engineering stress assumptions.
+- Chưa build/chạy Linux SITL campaign end-to-end trong workspace phiên hiện tại. Output 5G KPI đã sinh; 3.6 GHz MAT model chưa sinh do thiếu SciPy trong runtime; không ghi thành pipeline đã hoàn tất.
+
+4.7. TRIỂN KHAI THIẾT KẾ BỐN LỚP DATASET-CALIBRATED (2026-10-04)
+
+Đây là phần bổ sung chuẩn mới nhất cho cấu hình code và paper; nếu nội dung lịch sử mâu thuẫn thì dùng 4.8 và `src/pipeline/README.md`.
+
+- L1 Propagation: giữ Dataset-32 3.4 GHz và A2G CIR 3.6 GHz thành hai fit độc lập; báo holdout theo flight/scenario group. Chỉ gọi dataset-calibrated relative path-loss trend trong miền quan sát. Không biến PL thành dBm/SNR, không chuyển hệ số sang qdisc.
+- L2 Mobility: P4 giữ toàn bộ log GPS AFAR hợp lệ, checksum và campaign/location provenance. Chia partition theo campaign ID (không chia điểm/time rows), giữ một campaign làm holdout. Ba route SITL mặc định lấy từ ba campaign train khác nhau. Thuật ngữ hiện tại là empirical trace library/replay, chưa phải flight dynamics calibrated vì thiếu tracking-error holdout.
+- L3 Link KPI: giữ AERPAW 5G và AADM thành nhánh công nghệ/dataset riêng, fit/đánh giá bằng group holdout và chỉ trên biến thật sự được đo. Không dùng throughput 5G/AADM thay C2 goodput, và không gọi qdisc calibrated. C1–C4 hiện chỉ là stress assumptions.
+- L4 End-to-end: PX4/Gazebo + MAVLink/Containernet tạo run artifacts; không tuyên bố fidelity calibrated khi thiếu C2 reference cùng observable. IDS metrics không phải fidelity metric.
+- `P11_calibration_card.py` tổng hợp tình trạng từng lớp, nguồn artifact, giới hạn claim và gates còn thiếu thành `data/model_fits/four_layer_calibration_card.json`. Overall claim luôn là simulation-only, partial dataset-calibrated cho tới khi có chứng cứ C2 tương thích và paired end-to-end validation.
+- `P4_layer2_mobility.py` tạo trace cho tất cả campaign/location hợp lệ, hash source, gán train/holdout theo campaign. `P7` nhận mission ID tổng quát; P8 mặc định dùng F1/F4/F7 thuộc ba campaign train, giữ campaign holdout riêng. Trước khi viết kết quả paper, xác nhận chạy trace holdout như đánh giá frozen, không dùng để tuning.
+- `run_all.sh` tạo calibration card sau reference processing/mobility; LAYER1_ONLY cũng tạo card để thể hiện các lớp chưa chạy.
+
+Claim được chấp nhận sau thiết kế này: “simulation-only UAV C2 software twin with dataset-specific empirical calibration/evaluation for propagation and selected radio KPI domains, plus grouped real-trajectory replay; end-to-end MAVLink C2 fidelity remains uncalibrated.” Không rút ngắn thành “fully calibrated four-layer twin”.
+
+4.8. CẬP NHẬT PAWPRINTS, CLAIM VÀ LỘ TRÌNH ĐO C2 (2026-10-05)
+
+Mục này thay các thuật ngữ/split cũ trong 4.7 khi mâu thuẫn; README và survey hiện hành cùng áp dụng cập nhật này.
+
+- Pawprints 4G đã tích hợp P2/P3 riêng: chuẩn hóa timestamp, RSRP/RSRQ/RSSI/PCI/EARFCN/connected/timing advance, hash input và khoảng cách ngang tới BS; đánh giá RSRP-distance bằng contiguous time-block holdout. Kết quả hiện sinh từ 2,021 source rows/1,217 connected rows; RMSE từng block 2.77–9.48 dB. Một flight duy nhất nên chỉ là exploratory LTE reference, không external-flight validation và không C2.
+- P4 manifest gọi ID ba chữ số trong cây thư mục AFAR là `source_group_id` do pipeline định nghĩa, không khẳng định là campaign. Holdout theo ID này giữ các location cùng source group trong một partition. P8 dùng F1/F4/F7 của ba source groups train.
+- 3.4 GHz trong P8/P7 là Dataset-32 reference gate/metadata; SITL không chạy RF carrier 3.4 GHz. Run ID/metadata ghi rõ `reference_dataset_carrier_ghz` và `simulated_rf_carrier_ghz: null`.
+- P10 mở rộng thành ablation network-only, telemetry-only và combined. P9 bổ sung packet rate, byte rate, packet length, interarrival, UDP fraction và flow-count theo cửa sổ. Các feature này vẫn là IP/UDP/flow-time statistics, chưa giải mã MAVLink payload; attack scope chỉ benign + bounded UDP DoS.
+- P11 không gắn nhãn L1/L3 là calibration của simulator: status phân biệt path-loss fit/holdout not coupled, trajectory replay, external KPI reference với C2 stress assumptions, và end-to-end data generation chưa fidelity validation. Overall claim: simulation-only C2 emulator với external empirical references; C2 impairment calibration và end-to-end fidelity chưa được thiết lập.
+- Survey thêm Pawprints artifact, báo cáo giới hạn, và mục future work về đo đồng bộ đúng C2; giữ nguyên phân biệt fit/calibration/validation. AADM P12 cũng được nối để so sánh phân phối development/testbed theo flight khi có đủ hai stage CSV; đây không phải validation C2 của twin đề tài.
+
+Future work để hoàn thiện theo hướng bốn lớp:
+1. L1: lấy dữ liệu multi-altitude/geometry trong radio domain nhất quán; fit altitude-distance propagation và đánh giá flight/site holdout.
+2. L2: fit mobility distributions từ AFAR/AADM development/source groups, phát lại trong PX4 và đo sai số trajectory/altitude/speed/heading trên holdout.
+3. L3: đo cùng lúc radio quality và MAVLink/network outcomes (loss/PER, RTT/jitter, goodput); fit chain và đưa model đã fit vào P5 thay cho stress constants.
+4. L4: chạy scenario cùng cấu hình trên reference testbed/channel emulator và twin; so các observables chung trên runs giữ riêng, báo uncertainty theo run/flight.
+
+- Không bắt buộc nhóm tự bay UAV: có thể dùng bench PX4 SITL/GCS + radio/channel emulator. Nếu không có target-compatible C2 measurement, giữ L3 C2 là stress-test và L4 C2 là chưa validation; không đổi external 4G/5G/AADM KPI thành ground truth cho MAVLink.
+
+- P12 `P12_compare_aadm_domain.py` được nối sau AADM preprocessing: khi có cả development và testbed stage CSV, so phân phối flight-level theo BS (Wasserstein) cho các KPI chung. Đây là so sánh domain AADM độc lập/unpaired, không phải paired validation của twin C2 đề tài.
+
+
+4.9. LAYER 2: TELEMETRY HOLDOUT ROUTE-TRACKING EVALUATION (2026-10-06) — SUPERSEDED BY 4.10
+
+- P8 mặc định giữ ma trận compact F1/F4/F7 từ ba source_group_id train; `--partition holdout` chọn riêng các route thuộc held-out source groups. Mission IDs explicit bị kiểm tra đối chiếu với manifest để ngăn train/holdout leakage. Metadata mỗi run ghi source group, partition và offset độ cao.
+- MAVSDK logger lưu `mission_current`, `mission_total`, `is_in_air`; P13 chỉ chấm samples đang bay và mission đã bắt đầu.
+- `P13_evaluate_layer2_mobility.py` chuyển route/reference telemetry sang local ENU, tính khoảng cách ngang ngắn nhất tới polyline; nội suy altitude của segment gần nhất, cộng offset 15 m, rồi báo cross-track median/mean/RMSE/P95 và altitude bias/MAE/RMSE/P95 absolute từng run, tổng hợp median theo source group.
+- Đây là so khớp hình học không phụ thuộc thời gian; timestamp AFAR không giả định là lịch bay mục tiêu của PX4. Không claim speed/heading/temporal fidelity hay real-aircraft dynamics validation. Source group là đơn vị độc lập; repeated runs trong một group không được tính như independent traces.
+- Lệnh Linux: P8 `--partition holdout --channel C1_LOS --traffic T0_Benign --repetitions 3`, output riêng `data/mobility_holdout_results`; sau đó P13 ghi `data/model_fits/layer2_mobility_holdout.json`. Calibration card chỉ nâng trạng thái L2 khi report holdout có kết quả thực.
+
+
+4.10. LAYER 2: TRAIN-FIT GAUSS–MARKOV MOBILITY PROFILE (2026-10-06)
+
+- Nhận định: P13 hình học ở mục 4.9 chỉ đo PX4 bám một tuyến đã nạp; nó không tự làm Layer 2 giống UAV-CAS. Bổ sung P14 để có bước fit mobility và test source-group holdout.
+- P14 fit trên các route P4 thuộc source_group_id train: resample speed 1 s; ước lượng alpha AR(1), mean và innovation sigma bằng least-squares lag-1 riêng từng trace rồi lấy median equal-trace; JSD giữa speed quan sát và mô phỏng được giữ làm diagnostic chứ không dùng chọn alpha. Fit thêm turn-rate P95 và median altitude profile theo normalized progress; các histogram ground speed, turn-rate, vertical-rate, relative altitude và occupancy 10×10 được equal-weight theo trace.
+- P14 so phân phối train/holdout bằng Jensen–Shannon divergence với bin cố định. Artifact `data/model_fits/layer2_afar_mobility_calibration.json` lưu split, parameters, distributions, JSD và limits.
+- P8 từ chối chạy nếu artifact/match manifest thiếu; P7 lấy mẫu speed profile có seed từ mô hình scalar-speed Gauss–Markov; chuyển alpha chu kỳ 1 s sang khoảng thời gian ước tính giữa waypoint (độ dài đoạn / mean speed); áp turn-rate cap hình học để giảm tốc ở góc gắt và dùng altitude profile train-fit trong waypoint PX4. Geometry ngang vẫn là AFAR replay. Bước quy đổi thời gian waypoint là xấp xỉ vì tốc độ thực làm thay đổi thời gian tới waypoint; đây là mobility calibration một phần được ghép vào simulator, không phải mô hình Gaussian–Markov 3D đầy đủ, attitude/acceleration, swarm topology hay link lifetime như UAV-CAS.
+- P13 giữ vai trò khác: sau run SITL, chấm holdout route cross-track và altitude profile; không dùng sai số này để fit lại model.
+- P15 (P15_kinematic_milestones.py) tạo gate riêng cho speed, vertical rate, course turn rate, course-over-ground heading, horizontal acceleration và lag-1 speed autocorrelation. Ngưỡng pilot là P95 khoảng cách cặp giữa trace train cùng source group; đây là tolerance nội bộ của archive, không phải chuẩn bay phổ quát. Mission duration chỉ báo mô tả vì timestamp AFAR không phải lịch PX4. Attitude/body-rate/3-axis acceleration được đánh dấu chưa thể xác nhận do thiếu reference đồng bộ. P13 chỉ xuất sai số tuyến; numerical pass/fail cần ngưỡng kỹ thuật được đăng ký trước.
+- Trạng thái artifact hiện tại (đã chạy lại 2026-10-06): train groups 288/300/301/309, holdout group 328; reference median speed 2.86 m/s; alpha=0.970, mean=3.05 m/s, innovation sigma=0.438 m/s (median least-squares lag-1 theo trace), train turn-rate |P95|=10.51°/s; altitude profile train median chạy từ 0 đến 32.53 m trước offset mission +15 m. JSD train giữa tốc độ quan sát và mô phỏng tại tham số fit là 0.066 bits. Holdout JSD (bits): speed 0.269; turn-rate 0.018; vertical-rate 0.014; altitude 0.484; normalized occupancy 0.317. Holdout chỉ có một source group nên đây là diagnostic, chưa phải CI/khái quát ngoài miền. Chưa chạy SITL holdout để xác nhận PX4 thực thi các profile mới.
+
+
+
+
